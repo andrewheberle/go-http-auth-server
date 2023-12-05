@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/samlsp"
+	dsig "github.com/russellhaering/goxmldsig"
 )
 
 type ServiceProvider struct {
@@ -52,6 +54,7 @@ func NewServiceProvider(cert, key string, metadata, root *url.URL, mapping map[s
 		Certificate:       keyPair.Leaf,
 		IDPMetadata:       idpMetadata,
 		AllowIDPInitiated: true,
+		SignRequest:       true,
 	}
 
 	// create middleware
@@ -59,6 +62,9 @@ func NewServiceProvider(cert, key string, metadata, root *url.URL, mapping map[s
 	if err != nil {
 		return nil, fmt.Errorf("new samlsp error: %w", err)
 	}
+
+	// set SHA256 as the signature method
+	mw.ServiceProvider.SignatureMethod = dsig.RSASHA256SignatureMethod
 
 	// set up custom session provider
 	if err := setSessionProvider(root, mw); err != nil {
@@ -219,6 +225,69 @@ func (s *ServiceProvider) LogoutHandler(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Add("Location", url.String())
 	w.WriteHeader(http.StatusFound)
+}
+
+func (s *ServiceProvider) HomeHandler(w http.ResponseWriter, r *http.Request) {
+	templ := string(`
+	<html>
+	  <head>
+	  </head>
+	  <body>
+	  <h1>Welcome</h1>
+	  <div>User: {{ index .Data "remote-user" }}</div>
+	  <div>Name: {{ index .Data "remote-name" }}</div>
+	  <div>Email: {{ index .Data "remote-email" }}</div>
+	  <div><a href="{{ .LogoutURL }}">Logout</a></div>
+	  </body>
+	</html>`)
+
+	t, err := template.New("home").Parse(templ)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	session, _ := s.mw.Session.GetSession(r)
+	if session != nil {
+		// get session attributes
+		attributes, ok := session.(samlsp.SessionWithAttributes)
+		if !ok {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// convert to a map of claims
+		claims := s.mapAttributes(attributes.GetAttributes())
+
+		// execute template
+		t.Execute(w, struct {
+			Data      map[string]string
+			LogoutURL string
+		}{claims, s.mw.ServiceProvider.SloURL.String()})
+
+		return
+	}
+
+	w.WriteHeader(http.StatusInternalServerError)
+}
+
+func NewMux(s *ServiceProvider) *http.ServeMux {
+	// new server mux
+	mux := http.NewServeMux()
+
+	// set up auth endpoints
+	mux.HandleFunc("/api/verify", s.ForwardAuthHandler)
+	mux.HandleFunc("/api/authz/forward-auth", s.ForwardAuthHandler)
+
+	// set up saml endpoints
+	mux.HandleFunc(s.AcsURL().Path, s.ACSHandler)
+	mux.HandleFunc(s.MetadataURL().Path, s.MetadataHandler)
+	mux.HandleFunc(s.LogoutUrl().Path, s.LogoutHandler)
+
+	// login endpoint
+	mux.Handle("/", s.RequireAccount(http.HandlerFunc(s.HomeHandler)))
+
+	return mux
 }
 
 func (s *ServiceProvider) mapAttributes(attributes samlsp.Attributes) (claims map[string]string) {

@@ -3,9 +3,13 @@ module github.com/andrewheberle/go-http-auth-server
 go 1.21.4
 
 require (
+	github.com/cloudflare/certinel v0.4.0
 	github.com/crewjam/saml v0.4.14
+	github.com/oklog/run v1.1.0
+	github.com/russellhaering/goxmldsig v1.3.0
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.17.0
+	gitlab.com/andrewheberle/routerswapper v1.2.0
 )
 
 require (
@@ -20,7 +24,6 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/russellhaering/goxmldsig v1.3.0 // indirect
 	github.com/sagikazarmark/locafero v0.3.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect

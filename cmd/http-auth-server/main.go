@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -8,8 +10,11 @@ import (
 	"time"
 
 	"github.com/andrewheberle/go-http-auth-server/pkg/sp"
+	"github.com/cloudflare/certinel/fswatcher"
+	"github.com/oklog/run"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"gitlab.com/andrewheberle/routerswapper"
 )
 
 func main() {
@@ -61,24 +66,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// set up auth endpoints
-	http.HandleFunc("/api/verify", provider.ForwardAuthHandler)
-	http.HandleFunc("/api/authz/forward-auth", provider.ForwardAuthHandler)
+	// new server mux
+	mux := sp.NewMux(provider)
 
-	// set up saml endpoints
-	http.HandleFunc(provider.AcsURL().Path, provider.ACSHandler)
-	http.HandleFunc(provider.MetadataURL().Path, provider.MetadataHandler)
-	http.HandleFunc(provider.LogoutUrl().Path, provider.LogoutHandler)
+	// allow swapping of mux
+	rs := routerswapper.New(mux)
 
-	// login endpoint
-	http.Handle("/login", provider.RequireAccount(http.HandlerFunc((func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Logged In."))
-	}))))
-
-	// dummy endpoint
-
+	// set up server
 	srv := &http.Server{
 		Addr:         viper.GetString("listen"),
+		Handler:      rs,
 		ReadTimeout:  time.Second * 3,
 		WriteTimeout: time.Second * 3,
 	}
@@ -91,8 +88,85 @@ func main() {
 		"sp-logout-url", provider.LogoutUrl().String(),
 	)
 
-	if err := srv.ListenAndServe(); err != nil {
-		slog.Error("problem with SP URL", err)
+	g := run.Group{}
+
+	// add http server
+	if viper.GetString("cert") == "" && viper.GetString("key") == "" {
+		g.Add(func() error {
+			return srv.ListenAndServe()
+		}, func(err error) {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				srv.Shutdown(ctx)
+				cancel()
+			}()
+		})
+	} else {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		// set up cert reloader
+		certinel, err := fswatcher.New(viper.GetString("cert"), viper.GetString("key"))
+		if err != nil {
+			slog.Error("problem setting up certificate reloads", "error", err)
+			os.Exit(1)
+		}
+
+		// add cert reloader to run group
+		g.Add(func() error {
+			return certinel.Start(ctx)
+		}, func(err error) {
+			cancel()
+		})
+
+		// set up tls config to allow reloads
+		srv.TLSConfig = &tls.Config{
+			GetCertificate: certinel.GetCertificate,
+		}
+
+		// add tls enabled server
+		g.Add(func() error {
+			return srv.ListenAndServeTLS("", "")
+		}, func(err error) {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				srv.Shutdown(ctx)
+				cancel()
+			}()
+		})
+	}
+
+	// set up refresh/reload of service provider metdata
+	quit := make(chan struct{})
+	g.Add(func() error {
+		for {
+			select {
+			case <-quit:
+				return nil
+			default:
+				time.Sleep(time.Hour * 24)
+
+				// set up provider
+				provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), metadata, root, viper.GetStringMapString("sp-claim-mapping"))
+				if err != nil {
+					// not a fatal error
+					slog.Error("provider reload", "error", err)
+					return nil
+				}
+				slog.Info("provider reload", "reloaded", true)
+
+				// new server mux
+				mux := sp.NewMux(provider)
+
+				// swap to new mux
+				rs.Swap(mux)
+			}
+		}
+	}, func(err error) {
+		close(quit)
+	})
+
+	if err := g.Run(); err != nil {
+		slog.Error("problem while running", err)
 		os.Exit(1)
 	}
 }
