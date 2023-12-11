@@ -6,7 +6,7 @@ require (
 	github.com/cloudflare/certinel v0.4.0
 	github.com/crewjam/saml v0.4.14
 	github.com/oklog/run v1.1.0
-	github.com/russellhaering/goxmldsig v1.3.0
+	github.com/russellhaering/goxmldsig v1.4.0
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.17.0
 	gitlab.com/andrewheberle/routerswapper v1.2.0
