@@ -253,10 +253,14 @@ func (s *ServiceProvider) HomeHandler(w http.ResponseWriter, r *http.Request) {
 	  </head>
 	  <body>
 	  <h1>Welcome</h1>
+	  <h2>User Information</h2>
 	  <div>User: {{ index .Data "remote-user" }}</div>
 	  <div>Name: {{ index .Data "remote-name" }}</div>
 	  <div>Email: {{ index .Data "remote-email" }}</div>
-	  <div><a href="{{ .LogoutURL }}">Logout</a></div>
+	  <h2>Service Provider Information</h2>
+	  <div>Assertion Consumer Service URL: {{ .AcsURL }}
+	  <div>Entity ID: {{ .EntityID }}
+	  <div>Metadata URL: {{ .MetadataURL }}
 	  </body>
 	</html>`)
 
@@ -280,9 +284,18 @@ func (s *ServiceProvider) HomeHandler(w http.ResponseWriter, r *http.Request) {
 
 		// execute template
 		t.Execute(w, struct {
-			Data      map[string]string
-			LogoutURL string
-		}{claims, s.mw.ServiceProvider.SloURL.String()})
+			Data        map[string]string
+			AcsURL      string
+			EntityID    string
+			MetadataURL string
+			LogoutURL   string
+		}{
+			Data:        claims,
+			AcsURL:      s.mw.ServiceProvider.AcsURL.String(),
+			EntityID:    s.mw.ServiceProvider.EntityID,
+			MetadataURL: s.mw.ServiceProvider.MetadataURL.String(),
+			LogoutURL:   s.mw.ServiceProvider.SloURL.String(),
+		})
 
 		return
 	}
