@@ -25,7 +25,13 @@ type ServiceProvider struct {
 	mapping map[string]string
 }
 
-var requiredHeaders = []string{"X-Forwarded-Proto", "X-Forwarded-Method", "X-Forwarded-Host", "X-Forwarded-URI", "X-Forwarded-For"}
+var requiredHeaders = []string{
+	"X-Forwarded-Proto",
+	"X-Forwarded-Method",
+	"X-Forwarded-Host",
+	"X-Forwarded-URI",
+	"X-Forwarded-For",
+}
 
 func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, mapping map[string]string) (*ServiceProvider, error) {
 	var (
@@ -74,6 +80,7 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 		IDPMetadata:       idpMetadata,
 		AllowIDPInitiated: true,
 		SignRequest:       true,
+		LogoutBindings:    []string{saml.HTTPPostBinding, saml.HTTPRedirectBinding},
 	}
 
 	// create middleware
@@ -96,31 +103,13 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 }
 
 func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Request) {
-	var proto, method, host, uri, src string
-
 	slog.Debug("got request", "headers", r.Header)
 
 	// check provided headers
-	for _, h := range requiredHeaders {
-		if v := r.Header.Get(h); v != "" {
-
-			switch h {
-			case "X-Forwarded-Proto":
-				proto = v
-			case "X-Forwarded-Method":
-				method = v
-			case "X-Forwarded-Host":
-				host = v
-			case "X-Forwarded-URI":
-				uri = v
-			case "X-Forwarded-For":
-				src = v
-			}
-		} else {
-			w.WriteHeader(http.StatusBadRequest)
-			slog.Info("required header not found", "src", r.RemoteAddr, "missing", h)
-			return
-		}
+	if err := s.checkHeaders(r); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		slog.Error("required header not found", "src", r.RemoteAddr, "error", err)
+		return
 	}
 
 	// claims to return
@@ -153,10 +142,16 @@ func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Requ
 
 	// if no session exists then return redirect
 	if err == samlsp.ErrNoSession {
-		slog.Info("no session found", "for", src, "proto", proto, "method", method, "uri", uri, "host", host)
+		slog.Info(
+			"no session found",
+			"for", r.Header.Get("X-Forwarded-For"),
+			"proto", r.Header.Get("X-Forwarded-Proto"),
+			"method", r.Header.Get("X-Forwarded-Method"),
+			"uri", r.Header.Get("X-Forwarded-URI"),
+			"host", r.Header.Get("X-Forwarded-Host"))
 
 		// create new request reader and writer
-		req, err := http.NewRequest(method, fmt.Sprintf("%s://%s%s", proto, host, uri), nil)
+		req, err := http.NewRequest(r.Header.Get("X-Forwarded-Method"), fmt.Sprintf("%s://%s%s", r.Header.Get("X-Forwarded-Proto"), r.Header.Get("X-Forwarded-Host"), r.Header.Get("X-Forwarded-URI")), nil)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			slog.Error("error building request", "err", err)
@@ -320,6 +315,23 @@ func NewMux(s *ServiceProvider) *http.ServeMux {
 	mux.Handle("/", s.RequireAccount(http.HandlerFunc(s.HomeHandler)))
 
 	return mux
+}
+
+func (s *ServiceProvider) checkHeaders(r *http.Request) error {
+	missing := make([]string, 0)
+
+	// check provided headers
+	for _, h := range requiredHeaders {
+		if v := r.Header.Get(h); v == "" {
+			missing = append(missing, h)
+		}
+	}
+
+	if len(missing) != 0 {
+		return fmt.Errorf("missing headers: %s", strings.Join(missing, ", "))
+	}
+
+	return nil
 }
 
 func (s *ServiceProvider) mapAttributes(attributes samlsp.Attributes) (claims map[string]string) {
