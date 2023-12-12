@@ -12,3 +12,7 @@ The process for login is:
 2. This proxy performs a process to verify the authentiction of the user via a HTTP sub-requet to `/api/authz/forward-auth`
 3. If the user is already authenticated the `/api/authz/forward-auth` returns a `HTTP 200 OK` response along with HTTP headers the proxy may use to identify the user
 4. If no valid session is available, a redirect is returned to the proxy which should be returned to the user, which will start the SAML login process
+
+## Architecture
+
+![architecture](docs/architecture.svg)
