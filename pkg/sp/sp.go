@@ -1,6 +1,7 @@
 package sp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rsa"
 	"crypto/tls"
@@ -26,7 +27,7 @@ type ServiceProvider struct {
 
 var requiredHeaders = []string{"X-Forwarded-Proto", "X-Forwarded-Method", "X-Forwarded-Host", "X-Forwarded-URI", "X-Forwarded-For"}
 
-func NewServiceProvider(cert, key string, metadata, root *url.URL, mapping map[string]string) (*ServiceProvider, error) {
+func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, mapping map[string]string) (*ServiceProvider, error) {
 	var (
 		idpMetadata *saml.EntityDescriptor
 		err         error
@@ -36,9 +37,27 @@ func NewServiceProvider(cert, key string, metadata, root *url.URL, mapping map[s
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	idpMetadata, err = samlsp.FetchMetadata(ctx, http.DefaultClient, *metadata)
-	if err != nil {
-		return nil, fmt.Errorf("metadata fetch error: %w", err)
+	switch metadata := metadata.(type) {
+	case *url.URL:
+		// fetch metadata from URL
+		idpMetadata, err = samlsp.FetchMetadata(ctx, http.DefaultClient, *metadata)
+		if err != nil {
+			return nil, fmt.Errorf("metadata fetch error: %w", err)
+		}
+	case ServiceProviderMetadata:
+		// build metadata from provided values
+		b, err := buildMetadata(metadata.Issuer, metadata.Endpoint, metadata.NameId, metadata.Certificate)
+		if err != nil {
+			return nil, fmt.Errorf("metadata build error: %w", err)
+		}
+
+		idpMetadata, err = samlsp.ParseMetadata(b)
+		if err != nil {
+			return nil, fmt.Errorf("custom metadata error: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("invalid SAML Service Provider metadata")
+
 	}
 
 	// parse certificate and key files
@@ -297,11 +316,11 @@ func (s *ServiceProvider) mapAttributes(attributes samlsp.Attributes) (claims ma
 
 	// Do mapping if non-nil
 	if s.mapping != nil {
-		for k, v := range s.mapping {
-			slog.Debug("claim mapping", "claim", k, "header", v)
-			if attr := attributes.Get(k); attr != "" {
-				slog.Debug("claim mapping", "claim", k, "header", v, "value", attr)
-				claims[v] = attr
+		for header, claim := range s.mapping {
+			slog.Debug("claim mapping", "claim", claim, "header", header)
+			if attr := attributes.Get(claim); attr != "" {
+				slog.Debug("claim mapping", "claim", claim, "header", header, "value", attr)
+				claims[header] = attr
 			}
 		}
 
@@ -364,4 +383,50 @@ func getDomain(root *url.URL) string {
 	}
 
 	return strings.Join(hsplit[1:], ".")
+}
+
+func buildMetadata(issuer, endpoint, nameid, certificate string) ([]byte, error) {
+	var metadataTemplate = template.Must(template.New("").Parse(`<?xml version="1.0"?>
+	<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" validUntil="{{ .ValidUntil }}" entityID="{{ .Issuer }}">
+	  <md:IDPSSODescriptor WantAuthnRequestsSigned="false" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+		<md:KeyDescriptor use="signing">
+		  <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+			<ds:X509Data>
+			  <ds:X509Certificate>{{ .Certificate }}</ds:X509Certificate>
+			</ds:X509Data>
+		  </ds:KeyInfo>
+		</md:KeyDescriptor>
+		<md:KeyDescriptor use="encryption">
+		  <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+			<ds:X509Data>
+			  <ds:X509Certificate>{{ .Certificate }}</ds:X509Certificate>
+			</ds:X509Data>
+		  </ds:KeyInfo>
+		</md:KeyDescriptor>
+		<md:NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:{{ .NameId }}</md:NameIDFormat>
+		<md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="{{ .Endpoint }}"/>
+	  </md:IDPSSODescriptor>
+	</md:EntityDescriptor>`))
+
+	buf := new(bytes.Buffer)
+
+	switch nameid {
+	case "persistent", "transient", "kerberos", "entity":
+		data := struct {
+			Issuer, Endpoint, NameId, Certificate, ValidUntil string
+		}{
+			issuer, endpoint, nameid, certificate, time.Now().AddDate(0, 3, 0).Format(time.RFC3339),
+		}
+		if err := metadataTemplate.Execute(buf, data); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("invalid SAML 2.0 NameId Format specified: %s", nameid)
+	}
+
+	return buf.Bytes(), nil
+}
+
+type ServiceProviderMetadata struct {
+	Issuer, Endpoint, NameId, Certificate string
 }

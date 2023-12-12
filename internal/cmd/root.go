@@ -44,16 +44,22 @@ func init() {
 	rootCmd.Flags().String("sp-cert", "", "Service Provider Certificate")
 	rootCmd.Flags().String("sp-key", "", "Service Provider Key")
 	rootCmd.Flags().String("sp-url", "http://localhost:9091", "Service Provider URL")
-	rootCmd.Flags().StringToString("sp-claim-mapping", map[string]string{"urn:oasis:names:tc:SAML:attribute:subject-id": "remote-user", "mail": "remote-email", "displayName": "remote-name", "role": "remote-groups"}, "Mapping of claims to headers")
-	rootCmd.Flags().String("metadata", "", "IdP Metadata URL")
+	rootCmd.Flags().StringToString("sp-claim-mapping", map[string]string{"remote-user": "urn:oasis:names:tc:SAML:attribute:subject-id", "remote-email": "mail", "remote-name": "displayName", "remote-groups": "role"}, "Mapping of claims to headers")
+	rootCmd.Flags().String("idp-metadata", "", "IdP Metadata URL")
+	rootCmd.Flags().String("idp-issuer", "", "IdP Issuer/Entity ID")
+	rootCmd.Flags().String("idp-sso-endpoint", "", "IdP SSO/login Endpoint")
+	rootCmd.Flags().String("idp-certificate", "", "IdP Certificate/Public Key")
 	rootCmd.Flags().Bool("debug", false, "Enable debug logging")
 
 	// flag requirements
 	rootCmd.MarkFlagsRequiredTogether("cert", "key")
 	rootCmd.MarkFlagsRequiredTogether("sp-cert", "sp-key")
-	rootCmd.MarkFlagRequired("metadata")
 	rootCmd.MarkFlagRequired("sp-cert")
 	rootCmd.MarkFlagRequired("sp-key")
+	rootCmd.MarkFlagsRequiredTogether("idp-issuer", "idp-sso-endpoint", "idp-certificate")
+	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-issuer")
+	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-sso-endpoint")
+	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-certificate")
 }
 
 func initConfig() {
@@ -88,10 +94,28 @@ func runRootCmd() error {
 		return fmt.Errorf("problem with SP URL: %w", err)
 	}
 
-	// validate metadata url
-	metadata, err := url.Parse(viper.GetString("metadata"))
+	// set up metadata
+	metadata, err := func() (interface{}, error) {
+		if m := viper.GetString("idp-metadata"); m != "" {
+			// from url
+			return url.Parse(m)
+		}
+
+		// error if the options for custom metadata are not set
+		if viper.GetString("idp-issuer") == "" {
+			return nil, fmt.Errorf("no metadata url or IdP information provided")
+		}
+
+		// or custom made
+		return sp.ServiceProviderMetadata{
+			Issuer:      viper.GetString("idp-issuer"),
+			Endpoint:    viper.GetString("idp-sso-endpoint"),
+			NameId:      "persistent",
+			Certificate: viper.GetString("idp-certificate"),
+		}, nil
+	}()
 	if err != nil {
-		return fmt.Errorf("problem with IdP metadata URL: %w", err)
+		return fmt.Errorf("problem with settign up IdP metadata: %w", err)
 	}
 
 	// set up auth provider
@@ -116,7 +140,6 @@ func runRootCmd() error {
 
 	slog.Info("starting service",
 		"listen", srv.Addr,
-		"idp-metadata-url", metadata.String(),
 		"sp-acs-url", provider.AcsURL().String(),
 		"sp-metdata-url", provider.MetadataURL().String(),
 		"sp-logout-url", provider.LogoutUrl().String(),
