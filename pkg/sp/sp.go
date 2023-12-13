@@ -23,6 +23,7 @@ import (
 type ServiceProvider struct {
 	mw      *samlsp.Middleware
 	mapping map[string]string
+	root    *url.URL
 }
 
 var requiredHeaders = []string{
@@ -99,7 +100,7 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 
 	slog.Debug("session provider setup (outside)", "domain", mw.Session.(samlsp.CookieSessionProvider).Domain)
 
-	return &ServiceProvider{mw, mapping}, nil
+	return &ServiceProvider{mw, mapping, root}, nil
 }
 
 func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +209,9 @@ func (s *ServiceProvider) AcsURL() *url.URL {
 }
 
 func (s *ServiceProvider) LogoutUrl() *url.URL {
-	return &s.mw.ServiceProvider.SloURL
+	logout, _ := url.JoinPath(s.root.String(), "/saml/logout")
+	u, _ := url.Parse(logout)
+	return u
 }
 
 func (s *ServiceProvider) MetadataURL() *url.URL {
@@ -224,21 +227,32 @@ func (s *ServiceProvider) MetadataHandler(w http.ResponseWriter, r *http.Request
 }
 
 func (s *ServiceProvider) LogoutHandler(w http.ResponseWriter, r *http.Request) {
-	nameID := samlsp.AttributeFromContext(r.Context(), "urn:oasis:names:tc:SAML:attribute:subject-id")
-	url, err := s.mw.ServiceProvider.MakeRedirectLogoutRequest(nameID, "")
+	templ := string(`
+	<html>
+	  <head>
+	  </head>
+	  <body>
+	  <h1>{{ .Message }}</h1>
+	  </body>
+	</html>`)
+
+	t, err := template.New("logout").Parse(templ)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := s.mw.Session.GetSession(r); err != nil {
+		t.Execute(w, struct{ Message string }{"Already Logged Out"})
+		return
+	}
+
+	if err := s.mw.Session.DeleteSession(w, r); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	err = s.mw.Session.DeleteSession(w, r)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Add("Location", url.String())
-	w.WriteHeader(http.StatusFound)
+	t.Execute(w, struct{ Message string }{"Logged Out"})
 }
 
 func (s *ServiceProvider) HomeHandler(w http.ResponseWriter, r *http.Request) {
