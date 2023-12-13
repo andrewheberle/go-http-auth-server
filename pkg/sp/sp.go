@@ -151,35 +151,8 @@ func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Requ
 			"uri", r.Header.Get("X-Forwarded-URI"),
 			"host", r.Header.Get("X-Forwarded-Host"))
 
-		// create new request reader and writer
-		req, err := http.NewRequest(r.Header.Get("X-Forwarded-Method"), fmt.Sprintf("%s://%s%s", r.Header.Get("X-Forwarded-Proto"), r.Header.Get("X-Forwarded-Host"), r.Header.Get("X-Forwarded-URI")), nil)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			slog.Error("error building request", "err", err)
-			return
-		}
-		rr := httptest.NewRecorder()
-
-		// use current headers
-		req.Header = r.Header
-		slog.Debug("new request", "headers", req.Header)
-
-		// start auth flow
-		s.mw.HandleStartAuthFlow(rr, req)
-
-		// transfer headers to response
-		for header, v := range rr.Result().Header {
-			for _, item := range v {
-				if header == "Set-Cookie" {
-					// add Domain to cookie if not set
-					if !strings.Contains(item, "Domain=") {
-						item = item + "; Domain=" + s.mw.Session.(samlsp.CookieSessionProvider).Domain
-					}
-				}
-				w.Header().Add(header, item)
-			}
-		}
-		w.WriteHeader(rr.Code)
+		// do start of saml auth process to return redirect
+		s.doAuthFlow(w, r)
 
 		slog.Debug("response", "headers", w.Header().Clone())
 		return
@@ -329,6 +302,38 @@ func NewMux(s *ServiceProvider) *http.ServeMux {
 	mux.Handle("/", s.RequireAccount(http.HandlerFunc(s.HomeHandler)))
 
 	return mux
+}
+
+func (s *ServiceProvider) doAuthFlow(w http.ResponseWriter, r *http.Request) {
+	// create new request reader and writer
+	req, err := http.NewRequest(r.Header.Get("X-Forwarded-Method"), fmt.Sprintf("%s://%s%s", r.Header.Get("X-Forwarded-Proto"), r.Header.Get("X-Forwarded-Host"), r.Header.Get("X-Forwarded-URI")), nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		slog.Error("error building request", "err", err)
+		return
+	}
+	rr := httptest.NewRecorder()
+
+	// use current headers
+	req.Header = r.Header
+	slog.Debug("new request", "headers", req.Header)
+
+	// start auth flow
+	s.mw.HandleStartAuthFlow(rr, req)
+
+	// transfer headers to response
+	for header, v := range rr.Result().Header {
+		for _, item := range v {
+			if header == "Set-Cookie" {
+				// add Domain to cookie if not set
+				if !strings.Contains(item, "Domain=") {
+					item = item + "; Domain=" + s.mw.Session.(samlsp.CookieSessionProvider).Domain
+				}
+			}
+			w.Header().Add(header, item)
+		}
+	}
+	w.WriteHeader(rr.Code)
 }
 
 func (s *ServiceProvider) checkHeaders(r *http.Request) error {
