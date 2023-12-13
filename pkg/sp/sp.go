@@ -76,6 +76,7 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 	// samlsp options
 	opts := samlsp.Options{
 		URL:               *root,
+		EntityID:          root.String(),
 		Key:               keyPair.PrivateKey.(*rsa.PrivateKey),
 		Certificate:       keyPair.Leaf,
 		IDPMetadata:       idpMetadata,
