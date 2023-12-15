@@ -200,38 +200,40 @@ func runRootCmd() error {
 	}
 
 	// set up refresh/reload of service provider metdata
-	quit := make(chan struct{})
-	g.Add(func() error {
-		slog.Info("service provider refresh", "action", "started", "next", time.Now().Add(time.Hour*24))
-		for {
-			select {
-			case <-quit:
-				return nil
-			default:
-				time.Sleep(time.Hour * 24)
+	if viper.GetString("idp-metadata") != "" {
+		quit := make(chan struct{})
+		g.Add(func() error {
+			slog.Info("service provider refresh", "action", "started", "next", time.Now().Add(time.Hour*24))
+			for {
+				select {
+				case <-quit:
+					return nil
+				default:
+					time.Sleep(time.Hour * 24)
 
-				// set up provider
-				provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), metadata, root, viper.GetStringMapString("sp-claim-mapping"))
-				if err != nil {
-					// not a fatal error
-					slog.Error("saml service provider reload", "error", err)
-					continue
+					// set up provider
+					provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), metadata, root, viper.GetStringMapString("sp-claim-mapping"))
+					if err != nil {
+						// not a fatal error
+						slog.Error("saml service provider reload", "error", err)
+						continue
+					}
+
+					// new server mux
+					mux := sp.NewMux(provider)
+
+					// swap to new mux
+					rs.Swap(mux)
 				}
 
-				// new server mux
-				mux := sp.NewMux(provider)
-
-				// swap to new mux
-				rs.Swap(mux)
+				// some logging
+				slog.Info("service provider refresh", "action", "refreshed", "next", time.Now().Add(time.Hour*24))
 			}
-
-			// some logging
-			slog.Info("service provider refresh", "action", "refreshed", "next", time.Now().Add(time.Hour*24))
-		}
-	}, func(err error) {
-		slog.Info("service provider refresh", "action", "shutting down")
-		close(quit)
-	})
+		}, func(err error) {
+			slog.Info("service provider refresh", "action", "shutting down")
+			close(quit)
+		})
+	}
 
 	if err := g.Run(); err != nil {
 		return fmt.Errorf("problem while running: %w", err)

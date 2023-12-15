@@ -300,7 +300,7 @@ func NewMux(s *ServiceProvider) *http.ServeMux {
 	mux.HandleFunc(s.LogoutUrl().Path, s.LogoutHandler)
 
 	// login endpoint
-	mux.Handle("/", s.RequireAccount(http.HandlerFunc(s.HomeHandler)))
+	mux.Handle("/saml/login", s.RequireAccount(http.HandlerFunc(s.HomeHandler)))
 
 	return mux
 }
