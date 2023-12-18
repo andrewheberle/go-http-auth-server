@@ -3,6 +3,7 @@ package sp
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/crewjam/saml/samlsp"
 	"github.com/golang-jwt/jwt/v4"
@@ -10,17 +11,14 @@ import (
 
 type JWTSessionCodec struct {
 	samlsp.JWTSessionCodec
-	store map[string]samlsp.Attributes
+	store *AttributeStore
 }
 
 func (c JWTSessionCodec) Encode(s samlsp.Session) (string, error) {
 	claims := s.(samlsp.JWTSessionClaims) // this will panic if you pass the wrong kind of session
 
 	// save attributes to store
-	if c.store == nil {
-		c.store = make(map[string]samlsp.Attributes)
-	}
-	c.store[claims.Id] = claims.Attributes
+	c.store.Set(claims.Id, claims.Attributes)
 	claims.Attributes = nil
 
 	token := jwt.NewWithClaims(c.SigningMethod, claims)
@@ -55,12 +53,44 @@ func (c JWTSessionCodec) Decode(signed string) (samlsp.Session, error) {
 	}
 
 	// lookup attributes
-	if c.store == nil {
-		c.store = make(map[string]samlsp.Attributes)
+	attrs, err := c.store.Get(claims.Id)
+	if err != nil {
+		return nil, err
 	}
-	if attrs, found := c.store[claims.Id]; found {
-		claims.Attributes = attrs
-	}
+	claims.Attributes = attrs
 
 	return claims, nil
+}
+
+type AttributeStore struct {
+	store map[string]samlsp.Attributes
+	mu    sync.RWMutex
+}
+
+func NewAttributeStore() *AttributeStore {
+	return &AttributeStore{
+		store: make(map[string]samlsp.Attributes),
+	}
+}
+
+func (s *AttributeStore) Get(id string) (samlsp.Attributes, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if attrs, found := s.store[id]; found {
+		return attrs, nil
+	}
+
+	return nil, fmt.Errorf("not found")
+}
+
+func (s *AttributeStore) Set(id string, attrs samlsp.Attributes) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.store == nil {
+		s.store = make(map[string]samlsp.Attributes)
+	}
+
+	s.store[id] = attrs
 }

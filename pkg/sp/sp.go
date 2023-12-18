@@ -100,7 +100,7 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 
 	// set up custom session coded
 	session := mw.Session.(samlsp.CookieSessionProvider)
-	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), make(map[string]samlsp.Attributes)}
+	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), NewAttributeStore()}
 	mw.Session = session
 
 	// set up custom session provider
