@@ -98,6 +98,11 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 	tracker := DefaultRequestTracker(opts, &mw.ServiceProvider)
 	mw.RequestTracker = tracker
 
+	// set up custom session coded
+	session := mw.Session.(samlsp.CookieSessionProvider)
+	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), make(map[string]samlsp.Attributes)}
+	mw.Session = session
+
 	// set up custom session provider
 	if err := setSessionProvider(root, mw); err != nil {
 		return nil, fmt.Errorf("session provider error: %w", err)
