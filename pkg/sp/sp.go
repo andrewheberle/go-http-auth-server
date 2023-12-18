@@ -94,6 +94,10 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 	// set SHA256 as the signature method
 	mw.ServiceProvider.SignatureMethod = dsig.RSASHA256SignatureMethod
 
+	// use custom request tracker
+	tracker := DefaultRequestTracker(opts, &mw.ServiceProvider)
+	mw.RequestTracker = tracker
+
 	// set up custom session provider
 	if err := setSessionProvider(root, mw); err != nil {
 		return nil, fmt.Errorf("session provider error: %w", err)
@@ -325,12 +329,6 @@ func (s *ServiceProvider) doAuthFlow(w http.ResponseWriter, r *http.Request) {
 	// transfer headers to response
 	for header, v := range rr.Result().Header {
 		for _, item := range v {
-			if header == "Set-Cookie" {
-				// add Domain to cookie if not set
-				if !strings.Contains(item, "Domain=") {
-					item = item + "; Domain=" + s.mw.Session.(samlsp.CookieSessionProvider).Domain
-				}
-			}
 			w.Header().Add(header, item)
 		}
 	}
