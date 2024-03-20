@@ -5,7 +5,8 @@ go 1.21.4
 require (
 	github.com/cloudflare/certinel v0.4.1
 	github.com/crewjam/saml v0.4.14
-	github.com/golang-jwt/jwt/v4 v4.5.0
+	github.com/golang-jwt/jwt/v4 v4.4.3
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/oklog/run v1.1.0
 	github.com/russellhaering/goxmldsig v1.4.0
 	github.com/spf13/cobra v1.8.0
