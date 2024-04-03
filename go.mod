@@ -1,6 +1,6 @@
 module github.com/andrewheberle/go-http-auth-server
 
-go 1.21.4
+go 1.22.2
 
 require (
 	github.com/cloudflare/certinel v0.4.1
