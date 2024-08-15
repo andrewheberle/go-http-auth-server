@@ -3,6 +3,7 @@ package sp
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/crewjam/saml/samlsp"
@@ -78,6 +79,8 @@ func (s *AttributeStore) Get(id string) (samlsp.Attributes, error) {
 	defer s.mu.RUnlock()
 
 	if attrs, found := s.store[id]; found {
+		slog.Debug("getting attributes from store", "id", id, "attrs", attrs)
+
 		return attrs, nil
 	}
 
@@ -91,6 +94,8 @@ func (s *AttributeStore) Set(id string, attrs samlsp.Attributes) {
 	if s.store == nil {
 		s.store = make(map[string]samlsp.Attributes)
 	}
+
+	slog.Debug("setting attributes in store", "id", id, "attrs", attrs)
 
 	s.store[id] = attrs
 }
