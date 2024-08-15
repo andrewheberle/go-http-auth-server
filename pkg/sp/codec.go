@@ -20,7 +20,7 @@ func (c JWTSessionCodec) Encode(s samlsp.Session) (string, error) {
 
 	slog.Debug("encoding claims", "claims", claims)
 	// save attributes to store
-	c.store.Set(claims.Id, claims.Attributes)
+	c.store.Set(claims.Subject, claims.Attributes)
 	claims.Attributes = nil
 
 	token := jwt.NewWithClaims(c.SigningMethod, claims)
@@ -55,7 +55,7 @@ func (c JWTSessionCodec) Decode(signed string) (samlsp.Session, error) {
 	}
 
 	// lookup attributes
-	attrs, err := c.store.Get(claims.Id)
+	attrs, err := c.store.Get(claims.Subject)
 	if err != nil {
 		return nil, err
 	}
