@@ -18,6 +18,7 @@ type JWTSessionCodec struct {
 func (c JWTSessionCodec) Encode(s samlsp.Session) (string, error) {
 	claims := s.(samlsp.JWTSessionClaims) // this will panic if you pass the wrong kind of session
 
+	slog.Debug("encoding claims", "claims", claims)
 	// save attributes to store
 	c.store.Set(claims.Id, claims.Attributes)
 	claims.Attributes = nil
