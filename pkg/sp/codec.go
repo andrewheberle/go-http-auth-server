@@ -100,3 +100,16 @@ func (s *AttributeStore) Set(id string, attrs samlsp.Attributes) {
 
 	s.store[id] = attrs
 }
+
+func (s *AttributeStore) Delete(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.store == nil {
+		return
+	}
+
+	slog.Debug("deleting attributes in store", "id", id)
+
+	delete(s.store, id)
+}
