@@ -94,6 +94,41 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 	// set SHA256 as the signature method
 	mw.ServiceProvider.SignatureMethod = dsig.RSASHA256SignatureMethod
 
+	// set up URLs based on provided root
+
+	// metadata
+	m, err := url.JoinPath(root.String(), "/saml/metadata")
+	if err != nil {
+		return nil, fmt.Errorf("metadata url error: %w", err)
+	}
+	mu, err := url.Parse(m)
+	if err != nil {
+		return nil, fmt.Errorf("metadata url error: %w", err)
+	}
+	mw.ServiceProvider.MetadataURL = *mu
+
+	// acs url
+	a, err := url.JoinPath(root.String(), "/saml/acs")
+	if err != nil {
+		return nil, fmt.Errorf("acs url error: %w", err)
+	}
+	au, err := url.Parse(a)
+	if err != nil {
+		return nil, fmt.Errorf("acs url error: %w", err)
+	}
+	mw.ServiceProvider.AcsURL = *au
+
+	// slo url
+	s, err := url.JoinPath(root.String(), "/saml/slo")
+	if err != nil {
+		return nil, fmt.Errorf("slo url error: %w", err)
+	}
+	su, err := url.Parse(s)
+	if err != nil {
+		return nil, fmt.Errorf("slo url error: %w", err)
+	}
+	mw.ServiceProvider.SloURL = *su
+
 	// use custom request tracker
 	tracker := DefaultRequestTracker(opts, &mw.ServiceProvider)
 	mw.RequestTracker = tracker
@@ -201,6 +236,38 @@ func (s *ServiceProvider) MetadataURL() *url.URL {
 	return &s.mw.ServiceProvider.MetadataURL
 }
 
+func (s *ServiceProvider) VerifyURL() *url.URL {
+	u, err := url.JoinPath(s.root.String(), "/api/verify")
+	if err != nil {
+		// this is something that cannot be recovered from
+		panic(err)
+	}
+
+	verify, err := url.Parse(u)
+	if err != nil {
+		// this is also something that cannot be recovered from (and should not occur)
+		panic(err)
+	}
+
+	return verify
+}
+
+func (s *ServiceProvider) ForwardAuthURL() *url.URL {
+	u, err := url.JoinPath(s.root.String(), "/api/authz/forward-auth")
+	if err != nil {
+		// this is something that cannot be recovered from
+		panic(err)
+	}
+
+	verify, err := url.Parse(u)
+	if err != nil {
+		// this is also something that cannot be recovered from (and should not occur)
+		panic(err)
+	}
+
+	return verify
+}
+
 func (s *ServiceProvider) ACSHandler(w http.ResponseWriter, r *http.Request) {
 	s.mw.ServeACS(w, r)
 }
@@ -300,8 +367,8 @@ func NewMux(s *ServiceProvider) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// set up auth endpoints
-	mux.HandleFunc("/api/verify", s.ForwardAuthHandler)
-	mux.HandleFunc("/api/authz/forward-auth", s.ForwardAuthHandler)
+	mux.HandleFunc(s.VerifyURL().Path, s.ForwardAuthHandler)
+	mux.HandleFunc(s.ForwardAuthURL().Path, s.ForwardAuthHandler)
 
 	// set up saml endpoints
 	mux.HandleFunc(s.AcsURL().Path, s.ACSHandler)

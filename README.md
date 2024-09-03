@@ -16,3 +16,20 @@ The process for login is:
 ## Architecture
 
 ![architecture](docs/architecture.svg)
+
+## Configuration
+
+### Minimal Required Configuration
+
+The following example shows configuration via environment variables:
+
+```sh
+AUTH_SP_CERT=/config/samlsp.crt \
+AUTH_SP_KEY=/config/samlsp.key \
+AUTH_SP_URL=https://sp.example.com/ \ 
+AUTH_IDP_METADATA=https://idp.example.net/metadata \
+./http-auth-server
+```
+
+The above configuration omits a certificate and private key to enable HTTPS which is likely to cause problems as the SP URL uses HTTPS, unless a reverse proxy is handling SSL termination upstream.
+
