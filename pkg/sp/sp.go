@@ -226,6 +226,12 @@ func (s *ServiceProvider) AcsURL() *url.URL {
 	return &s.mw.ServiceProvider.AcsURL
 }
 
+func (s *ServiceProvider) LoginUrl() *url.URL {
+	logout, _ := url.JoinPath(s.root.String(), "/saml/login")
+	u, _ := url.Parse(logout)
+	return u
+}
+
 func (s *ServiceProvider) LogoutUrl() *url.URL {
 	logout, _ := url.JoinPath(s.root.String(), "/saml/logout")
 	u, _ := url.Parse(logout)
@@ -376,7 +382,7 @@ func NewMux(s *ServiceProvider) *http.ServeMux {
 	mux.HandleFunc(s.LogoutUrl().Path, s.LogoutHandler)
 
 	// login endpoint
-	mux.Handle("/saml/login", s.RequireAccount(http.HandlerFunc(s.HomeHandler)))
+	mux.Handle(s.LoginUrl().Path, s.RequireAccount(http.HandlerFunc(s.HomeHandler)))
 
 	return mux
 }
