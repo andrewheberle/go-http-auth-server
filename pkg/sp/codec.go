@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 
 	"github.com/crewjam/saml/samlsp"
 	"github.com/golang-jwt/jwt/v4"
@@ -12,7 +11,7 @@ import (
 
 type JWTSessionCodec struct {
 	samlsp.JWTSessionCodec
-	store *AttributeStore
+	store AttributeStore
 }
 
 func (c JWTSessionCodec) Encode(s samlsp.Session) (string, error) {
@@ -64,52 +63,8 @@ func (c JWTSessionCodec) Decode(signed string) (samlsp.Session, error) {
 	return claims, nil
 }
 
-type AttributeStore struct {
-	store map[string]samlsp.Attributes
-	mu    sync.RWMutex
-}
-
-func NewAttributeStore() *AttributeStore {
-	return &AttributeStore{
-		store: make(map[string]samlsp.Attributes),
-	}
-}
-
-func (s *AttributeStore) Get(id string) (samlsp.Attributes, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if attrs, found := s.store[id]; found {
-		slog.Debug("getting attributes from store", "id", id, "attrs", attrs)
-
-		return attrs, nil
-	}
-
-	return nil, fmt.Errorf("not found")
-}
-
-func (s *AttributeStore) Set(id string, attrs samlsp.Attributes) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.store == nil {
-		s.store = make(map[string]samlsp.Attributes)
-	}
-
-	slog.Debug("setting attributes in store", "id", id, "attrs", attrs)
-
-	s.store[id] = attrs
-}
-
-func (s *AttributeStore) Delete(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.store == nil {
-		return
-	}
-
-	slog.Debug("deleting attributes in store", "id", id)
-
-	delete(s.store, id)
+type AttributeStore interface {
+	Get(id string) (samlsp.Attributes, error)
+	Set(id string, attrs samlsp.Attributes)
+	Delete(id string)
 }

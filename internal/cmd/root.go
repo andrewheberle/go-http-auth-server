@@ -44,7 +44,7 @@ func init() {
 	rootCmd.Flags().String("sp-cert", "", "Service Provider Certificate")
 	rootCmd.Flags().String("sp-key", "", "Service Provider Key")
 	rootCmd.Flags().String("sp-url", "http://localhost:9091", "Service Provider URL")
-	rootCmd.Flags().StringToString("sp-claim-mapping", map[string]string{"remote-user": "urn:oasis:names:tc:SAML:attribute:subject-id", "remote-email": "mail", "remote-name": "displayName", "remote-groups": "role"}, "Mapping of claims to headers")
+	rootCmd.Flags().StringToString("sp-claim-mapping", sp.DefaultClaimMapping, "Mapping of claims to headers")
 	rootCmd.Flags().String("idp-metadata", "", "IdP Metadata URL")
 	rootCmd.Flags().String("idp-issuer", "", "IdP Issuer/Entity ID")
 	rootCmd.Flags().String("idp-sso-endpoint", "", "IdP SSO/login Endpoint")
@@ -94,32 +94,32 @@ func runRootCmd() error {
 		return fmt.Errorf("problem with SP URL: %w", err)
 	}
 
-	// set up metadata
-	metadata, err := func() (interface{}, error) {
-		if m := viper.GetString("idp-metadata"); m != "" {
-			// from url
-			return url.Parse(m)
+	// set up service provider options
+	opts := []sp.ServiceProviderOption{
+		sp.WithClaimMapping(viper.GetStringMapString("sp-claim-mapping")),
+	}
+
+	// handle metadata
+	if m := viper.GetString("idp-metadata"); m != "" {
+		metadata, err := url.Parse(m)
+		if err != nil {
+			return fmt.Errorf("problem parsing IdP metadata url: %w", err)
 		}
 
-		// error if the options for custom metadata are not set
-		if viper.GetString("idp-issuer") == "" {
-			return nil, fmt.Errorf("no metadata url or IdP information provided")
-		}
-
-		// or custom made
-		return sp.ServiceProviderMetadata{
+		opts = append(opts, sp.WithMetadataURL(metadata))
+	} else {
+		metadata := sp.ServiceProviderMetadata{
 			Issuer:      viper.GetString("idp-issuer"),
 			Endpoint:    viper.GetString("idp-sso-endpoint"),
 			NameId:      "persistent",
 			Certificate: viper.GetString("idp-certificate"),
-		}, nil
-	}()
-	if err != nil {
-		return fmt.Errorf("problem with settign up IdP metadata: %w", err)
+		}
+
+		opts = append(opts, sp.WithCustomMetadata(metadata))
 	}
 
 	// set up auth provider
-	provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), metadata, root, viper.GetStringMapString("sp-claim-mapping"))
+	provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), root, opts...)
 	if err != nil {
 		return fmt.Errorf("problem setting up SP: %w", err)
 	}
@@ -211,8 +211,20 @@ func runRootCmd() error {
 				default:
 					time.Sleep(time.Hour * 24)
 
+					// parse url
+					metadata, _ := url.Parse(viper.GetString("idp-metadata"))
+					if err != nil {
+						return fmt.Errorf("problem parsing IdP metadata url: %w", err)
+					}
+
+					// set up service provider options
+					opts := []sp.ServiceProviderOption{
+						sp.WithClaimMapping(viper.GetStringMapString("sp-claim-mapping")),
+						sp.WithMetadataURL(metadata),
+					}
+
 					// set up provider
-					provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), metadata, root, viper.GetStringMapString("sp-claim-mapping"))
+					provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), root, opts...)
 					if err != nil {
 						// not a fatal error
 						slog.Error("saml service provider reload", "error", err)

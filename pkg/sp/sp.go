@@ -2,7 +2,6 @@ package sp
 
 import (
 	"bytes"
-	"context"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -21,9 +20,11 @@ import (
 )
 
 type ServiceProvider struct {
-	mw      *samlsp.Middleware
-	mapping map[string]string
-	root    *url.URL
+	idpMetadata *saml.EntityDescriptor
+	mw          *samlsp.Middleware
+	mapping     map[string]string
+	root        *url.URL
+	store       AttributeStore
 }
 
 var requiredHeaders = []string{
@@ -34,37 +35,13 @@ var requiredHeaders = []string{
 	"X-Forwarded-For",
 }
 
-func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, mapping map[string]string) (*ServiceProvider, error) {
-	var (
-		idpMetadata *saml.EntityDescriptor
-		err         error
-	)
+var DefaultClaimMapping = map[string]string{"remote-user": "urn:oasis:names:tc:SAML:attribute:subject-id", "remote-email": "mail", "remote-name": "displayName", "remote-groups": "role"}
 
-	// populate metadata either from a metadata URL or from custom values
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
-
-	switch metadata := metadata.(type) {
-	case *url.URL:
-		// fetch metadata from URL
-		idpMetadata, err = samlsp.FetchMetadata(ctx, http.DefaultClient, *metadata)
-		if err != nil {
-			return nil, fmt.Errorf("metadata fetch error: %w", err)
-		}
-	case ServiceProviderMetadata:
-		// build metadata from provided values
-		b, err := buildMetadata(metadata.Issuer, metadata.Endpoint, metadata.NameId, metadata.Certificate)
-		if err != nil {
-			return nil, fmt.Errorf("metadata build error: %w", err)
-		}
-
-		idpMetadata, err = samlsp.ParseMetadata(b)
-		if err != nil {
-			return nil, fmt.Errorf("custom metadata error: %w", err)
-		}
-	default:
-		return nil, fmt.Errorf("invalid SAML Service Provider metadata")
-
+func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProviderOption) (*ServiceProvider, error) {
+	// set up new service provider
+	serviceProvider := &ServiceProvider{
+		root:    root,
+		mapping: DefaultClaimMapping,
 	}
 
 	// parse certificate and key files
@@ -73,13 +50,28 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 		return nil, fmt.Errorf("problem loading key pair: %w", err)
 	}
 
+	// apply options
+	for _, o := range options {
+		o(serviceProvider)
+	}
+
+	// check that metadata is set
+	if serviceProvider.idpMetadata == nil {
+		return nil, fmt.Errorf("metadata was not set")
+	}
+
+	// set default store
+	if serviceProvider.store == nil {
+		serviceProvider.store = NewMemoryAttributeStore()
+	}
+
 	// samlsp options
 	opts := samlsp.Options{
 		URL:               *root,
 		EntityID:          root.String(),
 		Key:               keyPair.PrivateKey.(*rsa.PrivateKey),
 		Certificate:       keyPair.Leaf,
-		IDPMetadata:       idpMetadata,
+		IDPMetadata:       serviceProvider.idpMetadata,
 		AllowIDPInitiated: true,
 		SignRequest:       true,
 		LogoutBindings:    []string{saml.HTTPPostBinding, saml.HTTPRedirectBinding},
@@ -133,9 +125,9 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 	tracker := DefaultRequestTracker(opts, &mw.ServiceProvider)
 	mw.RequestTracker = tracker
 
-	// set up custom session coded
+	// set up custom session codec
 	session := mw.Session.(samlsp.CookieSessionProvider)
-	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), NewAttributeStore()}
+	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), serviceProvider.store}
 	mw.Session = session
 
 	// set up custom session provider
@@ -145,7 +137,9 @@ func NewServiceProvider(cert, key string, metadata interface{}, root *url.URL, m
 
 	slog.Debug("session provider setup (outside)", "domain", mw.Session.(samlsp.CookieSessionProvider).Domain)
 
-	return &ServiceProvider{mw, mapping, root}, nil
+	serviceProvider.mw = mw
+
+	return serviceProvider, nil
 }
 
 func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Request) {

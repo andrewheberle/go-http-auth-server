@@ -2,6 +2,8 @@ module github.com/andrewheberle/go-http-auth-server
 
 go 1.21.4
 
+replace github.com/crewjam/saml v0.4.14 => github.com/rancher/saml v0.4.14-rancher3
+
 require (
 	github.com/cloudflare/certinel v0.4.1
 	github.com/crewjam/saml v0.4.14
@@ -15,7 +17,7 @@ require (
 )
 
 require (
-	github.com/beevik/etree v1.1.0 // indirect
+	github.com/beevik/etree v1.2.0 // indirect
 	github.com/crewjam/httperr v0.2.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
