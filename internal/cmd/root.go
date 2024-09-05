@@ -49,6 +49,7 @@ func init() {
 	rootCmd.Flags().String("idp-issuer", "", "IdP Issuer/Entity ID")
 	rootCmd.Flags().String("idp-sso-endpoint", "", "IdP SSO/login Endpoint")
 	rootCmd.Flags().String("idp-certificate", "", "IdP Certificate/Public Key")
+	rootCmd.Flags().String("db-connection", "", "Database connection string")
 	rootCmd.Flags().Bool("debug", false, "Enable debug logging")
 
 	// flag requirements
@@ -60,6 +61,7 @@ func init() {
 	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-issuer")
 	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-sso-endpoint")
 	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-certificate")
+	rootCmd.MarkFlagsRequiredTogether("cert", "key")
 }
 
 func initConfig() {
@@ -116,6 +118,17 @@ func runRootCmd() error {
 		}
 
 		opts = append(opts, sp.WithCustomMetadata(metadata))
+	}
+
+	// are we using a database for storing session attributes
+	if dsn := viper.GetString("db-connection"); dsn != "" {
+		store, err := sp.NewDbAttributeStore(dsn)
+		if err != nil {
+			return fmt.Errorf("problem setting up db attribute store: %w", err)
+		}
+		defer store.Close()
+
+		opts = append(opts, sp.WithAttributeStore(store))
 	}
 
 	// set up auth provider

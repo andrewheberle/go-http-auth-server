@@ -62,7 +62,8 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 
 	// set default store
 	if serviceProvider.store == nil {
-		serviceProvider.store = NewMemoryAttributeStore()
+		// serviceProvider.store, _ = NewMemoryAttributeStore()
+		serviceProvider.store, _ = NewDbAttributeStore("blah")
 	}
 
 	// samlsp options
@@ -200,6 +201,7 @@ func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Requ
 	s.mw.OnError(w, r, err)
 }
 
+// SamlHandler can be used as a general HTTP handler
 func (s *ServiceProvider) SamlHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case s.AcsURL().Path:
@@ -207,6 +209,9 @@ func (s *ServiceProvider) SamlHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	case s.MetadataURL().Path:
 		s.mw.ServeMetadata(w, r)
+		return
+	case s.LoginUrl().Path:
+		s.HomeHandler(w, r)
 		return
 	case s.LogoutUrl().Path:
 		s.LogoutHandler(w, r)

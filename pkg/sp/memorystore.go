@@ -13,10 +13,10 @@ type MemoryAttributeStore struct {
 	mu    sync.RWMutex
 }
 
-func NewMemoryAttributeStore() *MemoryAttributeStore {
+func NewMemoryAttributeStore() (*MemoryAttributeStore, error) {
 	return &MemoryAttributeStore{
 		store: make(map[string]samlsp.Attributes),
-	}
+	}, nil
 }
 
 func (s *MemoryAttributeStore) Get(id string) (samlsp.Attributes, error) {
