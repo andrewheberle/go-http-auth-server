@@ -3,6 +3,7 @@ package sp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/crewjam/saml/samlsp"
@@ -13,18 +14,25 @@ type DbAttributeStore struct {
 	db *pgxpool.Pool
 }
 
-var schema = `
-CREATE TABLE IF NOT EXISTS store (
-	id text PRIMARY KEY NOT NULL,
-	value jsonb DEFAULT '{}'::jsonb NOT NULL
-)
-`
-
-func NewDbAttributeStore(dsn string) (*DbAttributeStore, error) {
+func NewDbAttributeStore(name, dsn string) (*DbAttributeStore, error) {
 	db, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		return nil, err
 	}
+
+	// set up table name
+	var table string
+	if name != "" {
+		table = fmt.Sprintf("%s_store", name)
+	} else {
+		table = "store"
+	}
+
+	// table schema
+	schema := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+id text PRIMARY KEY NOT NULL,
+value jsonb DEFAULT '{}'::jsonb NOT NULL
+)`, table)
 
 	if _, err := db.Exec(context.Background(), schema); err != nil {
 		return nil, err

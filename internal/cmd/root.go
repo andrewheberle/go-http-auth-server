@@ -50,6 +50,7 @@ func init() {
 	rootCmd.Flags().String("idp-sso-endpoint", "", "IdP SSO/login Endpoint")
 	rootCmd.Flags().String("idp-certificate", "", "IdP Certificate/Public Key")
 	rootCmd.Flags().String("db-connection", "", "Database connection string")
+	rootCmd.Flags().String("db-prefix", "", "Database table prefix")
 	rootCmd.Flags().Bool("debug", false, "Enable debug logging")
 
 	// flag requirements
@@ -122,7 +123,7 @@ func runRootCmd() error {
 
 	// are we using a database for storing session attributes
 	if dsn := viper.GetString("db-connection"); dsn != "" {
-		store, err := sp.NewDbAttributeStore(dsn)
+		store, err := sp.NewDbAttributeStore(viper.GetString("db-prefix"), dsn)
 		if err != nil {
 			return fmt.Errorf("problem setting up db attribute store: %w", err)
 		}

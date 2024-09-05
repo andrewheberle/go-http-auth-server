@@ -62,8 +62,7 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 
 	// set default store
 	if serviceProvider.store == nil {
-		// serviceProvider.store, _ = NewMemoryAttributeStore()
-		serviceProvider.store, _ = NewDbAttributeStore("blah")
+		serviceProvider.store, _ = NewMemoryAttributeStore()
 	}
 
 	// samlsp options
