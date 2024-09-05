@@ -14,6 +14,12 @@ type JWTSessionCodec struct {
 	store AttributeStore
 }
 
+type AttributeStore interface {
+	Get(id string) (samlsp.Attributes, error)
+	Set(id string, attrs samlsp.Attributes)
+	Delete(id string)
+}
+
 func (c JWTSessionCodec) Encode(s samlsp.Session) (string, error) {
 	claims := s.(samlsp.JWTSessionClaims) // this will panic if you pass the wrong kind of session
 
@@ -39,7 +45,6 @@ func (c JWTSessionCodec) Decode(signed string) (samlsp.Session, error) {
 	_, err := parser.ParseWithClaims(signed, &claims, func(*jwt.Token) (interface{}, error) {
 		return c.Key.Public(), nil
 	})
-	// TODO(ross): check for errors due to bad time and return ErrNoSession
 	if err != nil {
 		return nil, err
 	}
@@ -61,10 +66,4 @@ func (c JWTSessionCodec) Decode(signed string) (samlsp.Session, error) {
 	claims.Attributes = attrs
 
 	return claims, nil
-}
-
-type AttributeStore interface {
-	Get(id string) (samlsp.Attributes, error)
-	Set(id string, attrs samlsp.Attributes)
-	Delete(id string)
 }
