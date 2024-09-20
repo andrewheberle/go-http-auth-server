@@ -14,7 +14,7 @@ type ServiceProviderOption func(*ServiceProvider)
 
 func WithMetadataURL(metadata *url.URL) ServiceProviderOption {
 	return func(s *ServiceProvider) {
-		// populate metadata either from a metadata URL or from custom values
+		// populate metadata from a metadata URL
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 		defer cancel()
 
@@ -26,13 +26,14 @@ func WithMetadataURL(metadata *url.URL) ServiceProviderOption {
 		}
 
 		s.idpMetadata = idpMetadata
+		s.idpMetadataURL = metadata
 	}
 }
 
 func WithCustomMetadata(metadata ServiceProviderMetadata) ServiceProviderOption {
 	return func(s *ServiceProvider) {
 		// build metadata from provided values
-		b, err := buildMetadata(metadata.Issuer, metadata.Endpoint, metadata.NameId, metadata.Certificate)
+		b, err := buildMetadata(metadata.Issuer, metadata.Endpoint, metadata.Certificate)
 		if err != nil {
 			slog.Error("metadata build error", "error", err)
 			return
@@ -57,5 +58,11 @@ func WithClaimMapping(mapping map[string]string) ServiceProviderOption {
 func WithAttributeStore(store AttributeStore) ServiceProviderOption {
 	return func(s *ServiceProvider) {
 		s.store = store
+	}
+}
+
+func WithMetadataRefreshInterval(d time.Duration) ServiceProviderOption {
+	return func(s *ServiceProvider) {
+		s.idpMetadataRefreshInterval = d
 	}
 }

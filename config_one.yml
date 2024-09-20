@@ -1,0 +1,4 @@
+service-providers:
+- sp-cert: ./samlsp.crt
+  sp-key: ./samlsp.key
+  idp-metadata: https://sptest.iamshowcase.com/testsp_metadata.xml

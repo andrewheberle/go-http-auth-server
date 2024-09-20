@@ -20,11 +20,14 @@ import (
 )
 
 type ServiceProvider struct {
-	idpMetadata *saml.EntityDescriptor
-	mw          *samlsp.Middleware
-	mapping     map[string]string
-	root        *url.URL
-	store       AttributeStore
+	idpMetadata                *saml.EntityDescriptor
+	idpMetadataRefreshInterval time.Duration
+	idpMetadataURL             *url.URL
+	mw                         *samlsp.Middleware
+	mapping                    map[string]string
+	root                       *url.URL
+	store                      AttributeStore
+	opts                       samlsp.Options
 }
 
 var requiredHeaders = []string{
@@ -40,8 +43,9 @@ var DefaultClaimMapping = map[string]string{"remote-user": "urn:oasis:names:tc:S
 func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProviderOption) (*ServiceProvider, error) {
 	// set up new service provider
 	serviceProvider := &ServiceProvider{
-		root:    root,
-		mapping: DefaultClaimMapping,
+		root:                       root,
+		mapping:                    DefaultClaimMapping,
+		idpMetadataRefreshInterval: time.Hour * 24,
 	}
 
 	// parse certificate and key files
@@ -66,7 +70,7 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 	}
 
 	// samlsp options
-	opts := samlsp.Options{
+	serviceProvider.opts = samlsp.Options{
 		URL:               *root,
 		EntityID:          root.String(),
 		Key:               keyPair.PrivateKey.(*rsa.PrivateKey),
@@ -78,10 +82,27 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 	}
 
 	// create middleware
+	mw, err := initmw(root, serviceProvider.store, serviceProvider.opts)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Debug("session provider setup (outside)", "domain", mw.Session.(samlsp.CookieSessionProvider).Domain)
+
+	serviceProvider.mw = mw
+
+	return serviceProvider, nil
+}
+
+func initmw(root *url.URL, store AttributeStore, opts samlsp.Options) (*samlsp.Middleware, error) {
+	// create middleware
 	mw, err := samlsp.New(opts)
 	if err != nil {
 		return nil, fmt.Errorf("new samlsp error: %w", err)
 	}
+
+	// set name id format
+	mw.ServiceProvider.AuthnNameIDFormat = saml.PersistentNameIDFormat
 
 	// set SHA256 as the signature method
 	mw.ServiceProvider.SignatureMethod = dsig.RSASHA256SignatureMethod
@@ -127,7 +148,7 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 
 	// set up custom session codec
 	session := mw.Session.(samlsp.CookieSessionProvider)
-	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), serviceProvider.store}
+	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), store}
 	mw.Session = session
 
 	// set up custom session provider
@@ -135,11 +156,7 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 		return nil, fmt.Errorf("session provider error: %w", err)
 	}
 
-	slog.Debug("session provider setup (outside)", "domain", mw.Session.(samlsp.CookieSessionProvider).Domain)
-
-	serviceProvider.mw = mw
-
-	return serviceProvider, nil
+	return mw, nil
 }
 
 func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Request) {
@@ -366,9 +383,11 @@ func (s *ServiceProvider) HomeHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusInternalServerError)
 }
 
-func NewMux(s *ServiceProvider) *http.ServeMux {
-	// new server mux
-	mux := http.NewServeMux()
+func (s *ServiceProvider) NewMux(mux *http.ServeMux) error {
+	// Cannot do nil mux
+	if mux == nil {
+		return fmt.Errorf("provided mux was nil")
+	}
 
 	// set up auth endpoints
 	mux.HandleFunc(s.VerifyURL().Path, s.ForwardAuthHandler)
@@ -382,7 +401,29 @@ func NewMux(s *ServiceProvider) *http.ServeMux {
 	// login endpoint
 	mux.Handle(s.LoginUrl().Path, s.RequireAccount(http.HandlerFunc(s.HomeHandler)))
 
-	return mux
+	return nil
+}
+
+func (s *ServiceProvider) RefreshMetadata() error {
+	// skip if we didn't load metadata from a URL
+	if s.idpMetadataURL == nil {
+		return nil
+	}
+
+	// sleep for a while
+	time.Sleep(s.idpMetadataRefreshInterval)
+
+	// grab new metadata
+	WithMetadataURL(s.idpMetadataURL)(s)
+
+	mw, err := initmw(s.root, s.store, s.opts)
+	if err != nil {
+		return err
+	}
+
+	s.mw = mw
+
+	return nil
 }
 
 func (s *ServiceProvider) doAuthFlow(w http.ResponseWriter, r *http.Request) {
@@ -504,10 +545,10 @@ func getDomain(root *url.URL) string {
 	return strings.Join(hsplit[1:], ".")
 }
 
-func buildMetadata(issuer, endpoint, nameid, certificate string) ([]byte, error) {
+func buildMetadata(issuer, endpoint, certificate string) ([]byte, error) {
 	var metadataTemplate = template.Must(template.New("").Parse(`<?xml version="1.0"?>
 	<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" validUntil="{{ .ValidUntil }}" entityID="{{ .Issuer }}">
-	  <md:IDPSSODescriptor WantAuthnRequestsSigned="false" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+	  <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol" AuthnRequestsSigned="true" WantAssertionsSigned="true">
 		<md:KeyDescriptor use="signing">
 		  <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
 			<ds:X509Data>
@@ -521,31 +562,31 @@ func buildMetadata(issuer, endpoint, nameid, certificate string) ([]byte, error)
 			  <ds:X509Certificate>{{ .Certificate }}</ds:X509Certificate>
 			</ds:X509Data>
 		  </ds:KeyInfo>
+		  <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"></EncryptionMethod>
+		  <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes192-cbc"></EncryptionMethod>
+		  <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes256-cbc"></EncryptionMethod>
+		  <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p"></EncryptionMethod>
 		</md:KeyDescriptor>
-		<md:NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:{{ .NameId }}</md:NameIDFormat>
-		<md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="{{ .Endpoint }}"/>
+		<md:NameIDFormat>{{ .NameId }}</md:NameIDFormat>
+		<md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="{{ .Endpoint }}" />
+		<md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="{{ .Endpoint }}" />
 	  </md:IDPSSODescriptor>
 	</md:EntityDescriptor>`))
 
 	buf := new(bytes.Buffer)
 
-	switch nameid {
-	case "persistent", "transient", "kerberos", "entity":
-		data := struct {
-			Issuer, Endpoint, NameId, Certificate, ValidUntil string
-		}{
-			issuer, endpoint, nameid, certificate, time.Now().AddDate(0, 3, 0).Format(time.RFC3339),
-		}
-		if err := metadataTemplate.Execute(buf, data); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("invalid SAML 2.0 NameId Format specified: %s", nameid)
+	data := struct {
+		Issuer, Endpoint, NameId, Certificate, ValidUntil string
+	}{
+		issuer, endpoint, string(saml.PersistentNameIDFormat), certificate, time.Now().AddDate(0, 3, 0).Format(time.RFC3339),
+	}
+	if err := metadataTemplate.Execute(buf, data); err != nil {
+		return nil, err
 	}
 
 	return buf.Bytes(), nil
 }
 
 type ServiceProviderMetadata struct {
-	Issuer, Endpoint, NameId, Certificate string
+	Issuer, Endpoint, Certificate string
 }
