@@ -29,6 +29,7 @@ type ServiceProvider struct {
 	store                      AttributeStore
 	opts                       samlsp.Options
 	name                       string
+	onerror                    func(w http.ResponseWriter, r *http.Request, err error)
 }
 
 var requiredHeaders = []string{
@@ -83,23 +84,18 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 	}
 
 	// create middleware
-	mw, err := initmw(root, serviceProvider.store, serviceProvider.opts)
-	if err != nil {
+	if err := serviceProvider.initmw(); err != nil {
 		return nil, err
 	}
-
-	slog.Debug("session provider setup (outside)", "domain", mw.Session.(samlsp.CookieSessionProvider).Domain)
-
-	serviceProvider.mw = mw
 
 	return serviceProvider, nil
 }
 
-func initmw(root *url.URL, store AttributeStore, opts samlsp.Options) (*samlsp.Middleware, error) {
+func (sp *ServiceProvider) initmw() error {
 	// create middleware
-	mw, err := samlsp.New(opts)
+	mw, err := samlsp.New(sp.opts)
 	if err != nil {
-		return nil, fmt.Errorf("new samlsp error: %w", err)
+		return fmt.Errorf("new samlsp error: %w", err)
 	}
 
 	// set name id format
@@ -111,53 +107,66 @@ func initmw(root *url.URL, store AttributeStore, opts samlsp.Options) (*samlsp.M
 	// set up URLs based on provided root
 
 	// metadata
-	m, err := url.JoinPath(root.String(), "/saml/metadata")
+	m, err := url.JoinPath(sp.root.String(), "/saml/metadata")
 	if err != nil {
-		return nil, fmt.Errorf("metadata url error: %w", err)
+		return fmt.Errorf("metadata url error: %w", err)
 	}
 	mu, err := url.Parse(m)
 	if err != nil {
-		return nil, fmt.Errorf("metadata url error: %w", err)
+		return fmt.Errorf("metadata url error: %w", err)
 	}
 	mw.ServiceProvider.MetadataURL = *mu
 
 	// acs url
-	a, err := url.JoinPath(root.String(), "/saml/acs")
+	a, err := url.JoinPath(sp.root.String(), "/saml/acs")
 	if err != nil {
-		return nil, fmt.Errorf("acs url error: %w", err)
+		return fmt.Errorf("acs url error: %w", err)
 	}
 	au, err := url.Parse(a)
 	if err != nil {
-		return nil, fmt.Errorf("acs url error: %w", err)
+		return fmt.Errorf("acs url error: %w", err)
 	}
 	mw.ServiceProvider.AcsURL = *au
 
 	// slo url
-	s, err := url.JoinPath(root.String(), "/saml/slo")
+	s, err := url.JoinPath(sp.root.String(), "/saml/slo")
 	if err != nil {
-		return nil, fmt.Errorf("slo url error: %w", err)
+		return fmt.Errorf("slo url error: %w", err)
 	}
 	su, err := url.Parse(s)
 	if err != nil {
-		return nil, fmt.Errorf("slo url error: %w", err)
+		return fmt.Errorf("slo url error: %w", err)
 	}
 	mw.ServiceProvider.SloURL = *su
 
 	// use custom request tracker
-	tracker := DefaultRequestTracker(opts, &mw.ServiceProvider)
+	tracker := DefaultRequestTracker(sp.opts, &mw.ServiceProvider)
 	mw.RequestTracker = tracker
 
 	// set up custom session codec
 	session := mw.Session.(samlsp.CookieSessionProvider)
-	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), store}
+	session.Codec = JWTSessionCodec{session.Codec.(samlsp.JWTSessionCodec), sp.store}
 	mw.Session = session
 
 	// set up custom session provider
-	if err := setSessionProvider(root, mw); err != nil {
-		return nil, fmt.Errorf("session provider error: %w", err)
+	if err := setSessionProvider(sp.root, mw); err != nil {
+		return fmt.Errorf("session provider error: %w", err)
 	}
 
-	return mw, nil
+	// set OnError function
+	if sp.onerror == nil {
+		mw.OnError = func(w http.ResponseWriter, r *http.Request, err error) {
+			slog.Error("middleware error", "error", err)
+			http.Error(w, "Forbidden", http.StatusForbidden)
+		}
+	} else {
+		mw.OnError = sp.onerror
+	}
+
+	// set service provider middleware
+	sp.mw = mw
+
+	return nil
 }
 
 func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Request) {
@@ -174,48 +183,48 @@ func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Requ
 	headers := []string{"remote-user", "remote-name", "remote-email", "remote-groups"}
 
 	session, err := s.mw.Session.GetSession(r)
-	if session != nil {
-		// get session attributes
-		attributes, ok := session.(samlsp.SessionWithAttributes)
-		if !ok {
-			w.WriteHeader(http.StatusInternalServerError)
+	if err != nil {
+		// if no session exists then return redirect
+		if err == samlsp.ErrNoSession {
+			slog.Info(
+				"no session found",
+				"for", r.Header.Get("X-Forwarded-For"),
+				"proto", r.Header.Get("X-Forwarded-Proto"),
+				"method", r.Header.Get("X-Forwarded-Method"),
+				"uri", r.Header.Get("X-Forwarded-URI"),
+				"host", r.Header.Get("X-Forwarded-Host"))
+
+			// do start of saml auth process to return redirect
+			s.doAuthFlow(w, r)
+
+			slog.Debug("response", "headers", w.Header().Clone())
 			return
 		}
 
-		// convert to a map of claims
-		claims := s.mapAttributes(attributes.GetAttributes())
+		// return error and finish
+		s.mw.OnError(w, r, err)
+		return
+	}
 
-		// set headers to return
-		for _, h := range headers {
-			if claim, ok := claims[h]; ok {
-				w.Header().Set(h, claim)
-			}
+	// get session attributes
+	attributes, ok := session.(samlsp.SessionWithAttributes)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// convert to a map of claims
+	claims := s.mapAttributes(attributes.GetAttributes())
+
+	// set headers to return
+	for _, h := range headers {
+		if claim, ok := claims[h]; ok {
+			w.Header().Set(h, claim)
 		}
-
-		// response is ok
-		w.WriteHeader(http.StatusOK)
-
-		return
 	}
 
-	// if no session exists then return redirect
-	if err == samlsp.ErrNoSession {
-		slog.Info(
-			"no session found",
-			"for", r.Header.Get("X-Forwarded-For"),
-			"proto", r.Header.Get("X-Forwarded-Proto"),
-			"method", r.Header.Get("X-Forwarded-Method"),
-			"uri", r.Header.Get("X-Forwarded-URI"),
-			"host", r.Header.Get("X-Forwarded-Host"))
-
-		// do start of saml auth process to return redirect
-		s.doAuthFlow(w, r)
-
-		slog.Debug("response", "headers", w.Header().Clone())
-		return
-	}
-
-	s.mw.OnError(w, r, err)
+	// response is ok
+	w.WriteHeader(http.StatusOK)
 }
 
 // SamlHandler can be used as a general HTTP handler
@@ -422,12 +431,9 @@ func (s *ServiceProvider) RefreshMetadata() error {
 	// grab new metadata
 	WithMetadataURL(s.idpMetadataURL)(s)
 
-	mw, err := initmw(s.root, s.store, s.opts)
-	if err != nil {
+	if err := s.initmw(); err != nil {
 		return err
 	}
-
-	s.mw = mw
 
 	return nil
 }

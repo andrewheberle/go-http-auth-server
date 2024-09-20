@@ -72,3 +72,9 @@ func WithName(name string) ServiceProviderOption {
 		s.name = name
 	}
 }
+
+func WithOnError(fn func(w http.ResponseWriter, r *http.Request, err error)) ServiceProviderOption {
+	return func(s *ServiceProvider) {
+		s.onerror = fn
+	}
+}
