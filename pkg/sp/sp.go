@@ -67,7 +67,7 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 
 	// set default store with a 1-hour TTL
 	if serviceProvider.store == nil {
-		serviceProvider.store, _ = NewMemoryAttributeStore(time.Hour * 1)
+		serviceProvider.store = NewMemoryAttributeStore(time.Hour * 1)
 	}
 
 	// samlsp options

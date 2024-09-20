@@ -14,10 +14,10 @@ type MemoryAttributeStore struct {
 	store *ccache.Cache[samlsp.Attributes]
 }
 
-func NewMemoryAttributeStore(ttl time.Duration) (*MemoryAttributeStore, error) {
+func NewMemoryAttributeStore(ttl time.Duration) *MemoryAttributeStore {
 	return &MemoryAttributeStore{
 		store: ccache.New(ccache.Configure[samlsp.Attributes]()),
-	}, nil
+	}
 }
 
 func (s *MemoryAttributeStore) Get(id string) (samlsp.Attributes, error) {
