@@ -35,6 +35,7 @@ AUTH_IDP_METADATA=https://idp.example.net/metadata \
 ```
       --cert string                       HTTPS Certificate
       --db-connection string              Database connection string
+      --db-prefix string                  Database table prefix
       --debug                             Enable debug logging
   -h, --help                              help for http-auth-server
       --idp-certificate string            IdP Certificate/Public Key

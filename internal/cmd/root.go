@@ -17,7 +17,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"gitlab.com/andrewheberle/routerswapper"
 )
 
 var rootCmd = &cobra.Command{
@@ -51,13 +50,14 @@ func init() {
 	rootCmd.Flags().String("idp-certificate", "", "IdP Certificate/Public Key")
 	rootCmd.Flags().String("db-connection", "", "Database connection string")
 	rootCmd.Flags().String("db-prefix", "", "Database table prefix")
+	rootCmd.Flags().StringP("config", "c", "", "Configuration file")
 	rootCmd.Flags().Bool("debug", false, "Enable debug logging")
 
 	// flag requirements
-	rootCmd.MarkFlagsRequiredTogether("cert", "key")
 	rootCmd.MarkFlagsRequiredTogether("sp-cert", "sp-key")
 	rootCmd.MarkFlagRequired("sp-cert")
 	rootCmd.MarkFlagRequired("sp-key")
+	rootCmd.MarkFlagsRequiredTogether("cert", "key")
 	rootCmd.MarkFlagsRequiredTogether("idp-issuer", "idp-sso-endpoint", "idp-certificate")
 	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-issuer")
 	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-sso-endpoint")
@@ -74,12 +74,43 @@ func initConfig() {
 	// bind flags to viper
 	viper.BindPFlags(rootCmd.Flags())
 
-	// set any flags found in environment via viper
+	// load config file if flag is set
+	if config := viper.GetString("config"); config != "" {
+		viper.SetConfigFile(config)
+		if err := viper.ReadInConfig(); err != nil {
+			slog.Error("problem loading configuration", "error", err)
+			os.Exit(1)
+		}
+
+		// set sp-cert and sp-key to something just to allow things to work when using multiple SP's
+		for _, name := range []string{"sp-cert", "sp-key"} {
+			if !viper.IsSet(name) {
+				rootCmd.Flags().Set(name, "unused")
+			}
+		}
+	}
+
+	// set any flags found in environment/config via viper
 	rootCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if viper.IsSet(f.Name) && viper.GetString(f.Name) != "" {
+			slog.Info("setting flag", "name", f.Name, "value", viper.GetString(f.Name))
 			rootCmd.Flags().Set(f.Name, viper.GetString(f.Name))
 		}
 	})
+}
+
+type serviceProvider struct {
+	Name                        string            `mapstructure:"name"`
+	ServiceProviderURL          string            `mapstructure:"sp-url"`
+	ServiceProviderClaimMapping map[string]string `mapstructure:"sp-claim-mapping"`
+	ServiceProviderCertificate  string            `mapstructure:"sp-cert"`
+	ServiceProviderKey          string            `mapstructure:"sp-key"`
+	IdPMetadata                 string            `mapstructure:"idp-metadata"`
+	IdPIssuer                   string            `mapstructure:"idp-issuer"`
+	IdPSSOEndpoint              string            `mapstructure:"idp-sso-endpoint"`
+	IdPCertificate              string            `mapstructure:"idp-certificate"`
+	DatabaseConnection          string            `mapstructure:"db-connection"`
+	DatabaseTablePrefix         string            `mapstructure:"db-prefix"`
 }
 
 func runRootCmd() error {
@@ -91,76 +122,131 @@ func runRootCmd() error {
 		logLevel.Set(slog.LevelDebug)
 	}
 
-	// validate service provider root url
-	root, err := url.Parse(viper.GetString("sp-url"))
-	if err != nil {
-		return fmt.Errorf("problem with SP URL: %w", err)
+	// did we load in via a config file
+	var serviceProviders []serviceProvider
+	if viper.ConfigFileUsed() != "" {
+		// has a list of service providers been provided?
+		if viper.Get("service-providers") != nil {
+			if err := viper.UnmarshalKey("service-providers", &serviceProviders); err != nil {
+				return fmt.Errorf("error with service providers list: %w", err)
+			}
+		} else {
+			var sp serviceProvider
+			if err := viper.Unmarshal(&sp); err != nil {
+				return fmt.Errorf("error with service provider: %w", err)
+			}
+
+			serviceProviders = []serviceProvider{sp}
+		}
 	}
 
-	// set up service provider options
-	opts := []sp.ServiceProviderOption{
-		sp.WithClaimMapping(viper.GetStringMapString("sp-claim-mapping")),
-	}
+	// create run group
+	g := run.Group{}
 
-	// handle metadata
-	if m := viper.GetString("idp-metadata"); m != "" {
-		metadata, err := url.Parse(m)
+	// new mux
+	mux := http.NewServeMux()
+
+	// set up service provider(s)
+	for _, spConfig := range serviceProviders {
+		// validate service provider root url
+		root, err := url.Parse(spConfig.ServiceProviderURL)
 		if err != nil {
-			return fmt.Errorf("problem parsing IdP metadata url: %w", err)
+			return fmt.Errorf("problem with SP URL: %w", err)
 		}
 
-		opts = append(opts, sp.WithMetadataURL(metadata))
-	} else {
-		metadata := sp.ServiceProviderMetadata{
-			Issuer:      viper.GetString("idp-issuer"),
-			Endpoint:    viper.GetString("idp-sso-endpoint"),
-			NameId:      "persistent",
-			Certificate: viper.GetString("idp-certificate"),
+		// set up service provider options
+		opts := []sp.ServiceProviderOption{
+			sp.WithClaimMapping(spConfig.ServiceProviderClaimMapping),
 		}
 
-		opts = append(opts, sp.WithCustomMetadata(metadata))
-	}
+		// handle metadata
+		if spConfig.IdPMetadata != "" {
+			metadata, err := url.Parse(spConfig.IdPMetadata)
+			if err != nil {
+				return fmt.Errorf("problem parsing IdP metadata url: %w", err)
+			}
 
-	// are we using a database for storing session attributes
-	if dsn := viper.GetString("db-connection"); dsn != "" {
-		store, err := sp.NewDbAttributeStore(viper.GetString("db-prefix"), dsn)
+			opts = append(opts, sp.WithMetadataURL(metadata))
+		} else {
+			metadata := sp.ServiceProviderMetadata{
+				Issuer:      spConfig.IdPIssuer,
+				Endpoint:    spConfig.IdPSSOEndpoint,
+				Certificate: spConfig.IdPCertificate,
+			}
+
+			opts = append(opts, sp.WithCustomMetadata(metadata))
+		}
+
+		// are we using a database for storing session attributes
+		if dsn := spConfig.DatabaseConnection; dsn != "" {
+			store, err := sp.NewDbAttributeStore(spConfig.DatabaseTablePrefix, dsn)
+			if err != nil {
+				return fmt.Errorf("problem setting up db attribute store: %w", err)
+			}
+			defer store.Close()
+
+			opts = append(opts, sp.WithAttributeStore(store))
+		}
+
+		// set Service Provider name if provided
+		if spConfig.Name != "" {
+			opts = append(opts, sp.WithName(spConfig.Name))
+		}
+
+		// set up auth provider
+		provider, err := sp.NewServiceProvider(spConfig.ServiceProviderCertificate, spConfig.ServiceProviderKey, root, opts...)
 		if err != nil {
-			return fmt.Errorf("problem setting up db attribute store: %w", err)
+			return fmt.Errorf("problem setting up SP: %w", err)
 		}
-		defer store.Close()
 
-		opts = append(opts, sp.WithAttributeStore(store))
+		// set up refresh/reload of service provider metdata
+		if spConfig.IdPMetadata != "" {
+			quit := make(chan struct{})
+			g.Add(func() error {
+				slog.Info("service provider refresh", "action", "started", "next", time.Now().Add(time.Hour*24))
+				for {
+					select {
+					case <-quit:
+						return nil
+					default:
+						if err := provider.RefreshMetadata(); err != nil {
+							// not a fatal error
+							slog.Error("saml service provider reload", "error", err)
+							continue
+						}
+					}
+
+					// some logging
+					slog.Info("service provider refresh", "action", "refreshed", "next", time.Now().Add(time.Hour*24))
+				}
+			}, func(err error) {
+				slog.Info("service provider refresh", "action", "shutting down")
+				close(quit)
+			})
+		}
+
+		// new server mux
+		if err := provider.NewMux(mux); err != nil {
+			return fmt.Errorf("error setting up mux: %w", err)
+		}
+
+		slog.Info("set up service provider",
+			"acs-url", provider.AcsURL().String(),
+			"metdata-url", provider.MetadataURL().String(),
+			"logout-url", provider.LogoutUrl().String(),
+			"name", spConfig.Name,
+		)
 	}
-
-	// set up auth provider
-	provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), root, opts...)
-	if err != nil {
-		return fmt.Errorf("problem setting up SP: %w", err)
-	}
-
-	// new server mux
-	mux := sp.NewMux(provider)
-
-	// allow swapping of mux
-	rs := routerswapper.New(mux)
 
 	// set up server
 	srv := &http.Server{
 		Addr:         viper.GetString("listen"),
-		Handler:      rs,
+		Handler:      mux,
 		ReadTimeout:  time.Second * 3,
 		WriteTimeout: time.Second * 3,
 	}
 
-	slog.Info("starting service",
-		"listen", srv.Addr,
-		"sp-acs-url", provider.AcsURL().String(),
-		"sp-metdata-url", provider.MetadataURL().String(),
-		"sp-logout-url", provider.LogoutUrl().String(),
-	)
-
-	// create run group
-	g := run.Group{}
+	slog.Info("starting service", "listen", srv.Addr)
 
 	// add http server
 	if viper.GetString("cert") == "" && viper.GetString("key") == "" {
@@ -210,54 +296,6 @@ func runRootCmd() error {
 				srv.Shutdown(ctx)
 				cancel()
 			}()
-		})
-	}
-
-	// set up refresh/reload of service provider metdata
-	if viper.GetString("idp-metadata") != "" {
-		quit := make(chan struct{})
-		g.Add(func() error {
-			slog.Info("service provider refresh", "action", "started", "next", time.Now().Add(time.Hour*24))
-			for {
-				select {
-				case <-quit:
-					return nil
-				default:
-					time.Sleep(time.Hour * 24)
-
-					// parse url
-					metadata, _ := url.Parse(viper.GetString("idp-metadata"))
-					if err != nil {
-						return fmt.Errorf("problem parsing IdP metadata url: %w", err)
-					}
-
-					// set up service provider options
-					opts := []sp.ServiceProviderOption{
-						sp.WithClaimMapping(viper.GetStringMapString("sp-claim-mapping")),
-						sp.WithMetadataURL(metadata),
-					}
-
-					// set up provider
-					provider, err := sp.NewServiceProvider(viper.GetString("sp-cert"), viper.GetString("sp-key"), root, opts...)
-					if err != nil {
-						// not a fatal error
-						slog.Error("saml service provider reload", "error", err)
-						continue
-					}
-
-					// new server mux
-					mux := sp.NewMux(provider)
-
-					// swap to new mux
-					rs.Swap(mux)
-				}
-
-				// some logging
-				slog.Info("service provider refresh", "action", "refreshed", "next", time.Now().Add(time.Hour*24))
-			}
-		}, func(err error) {
-			slog.Info("service provider refresh", "action", "shutting down")
-			close(quit)
 		})
 	}
 

@@ -1,0 +1,3 @@
+sp-cert: ./samlsp.crt
+sp-key: ./samlsp.key
+idp-metadata: https://mocksaml.com/api/saml/metadata
