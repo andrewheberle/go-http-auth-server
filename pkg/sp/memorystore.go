@@ -3,57 +3,49 @@ package sp
 import (
 	"fmt"
 	"log/slog"
-	"sync"
+	"time"
 
 	"github.com/crewjam/saml/samlsp"
+	"github.com/karlseguin/ccache/v3"
 )
 
 type MemoryAttributeStore struct {
-	store map[string]samlsp.Attributes
-	mu    sync.RWMutex
+	ttl   time.Duration
+	store *ccache.Cache[samlsp.Attributes]
 }
 
-func NewMemoryAttributeStore() (*MemoryAttributeStore, error) {
+func NewMemoryAttributeStore(ttl time.Duration) (*MemoryAttributeStore, error) {
 	return &MemoryAttributeStore{
-		store: make(map[string]samlsp.Attributes),
+		store: ccache.New(ccache.Configure[samlsp.Attributes]()),
 	}, nil
 }
 
 func (s *MemoryAttributeStore) Get(id string) (samlsp.Attributes, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if item := s.store.Get(id); item != nil {
+		slog.Debug("getting attributes from store", "id", id, "attrs", item.Value())
 
-	if attrs, found := s.store[id]; found {
-		slog.Debug("getting attributes from store", "id", id, "attrs", attrs)
-
-		return attrs, nil
+		return item.Value(), nil
 	}
 
 	return nil, fmt.Errorf("not found")
 }
 
 func (s *MemoryAttributeStore) Set(id string, attrs samlsp.Attributes) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.store == nil {
-		s.store = make(map[string]samlsp.Attributes)
+		s.store = ccache.New(ccache.Configure[samlsp.Attributes]())
 	}
 
 	slog.Debug("setting attributes in store", "id", id, "attrs", attrs)
 
-	s.store[id] = attrs
+	s.store.Set(id, attrs, s.ttl)
 }
 
 func (s *MemoryAttributeStore) Delete(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.store == nil {
 		return
 	}
 
 	slog.Debug("deleting attributes in store", "id", id)
 
-	delete(s.store, id)
+	s.store.Delete(id)
 }
