@@ -1,7 +1,10 @@
 service-providers:
-- sp-cert: ./samlsp.crt
+- sp-url: http://localhost:9091/a
+  sp-cert: ./samlsp.crt
   sp-key: ./samlsp.key
-  idp-metadata: https://sptest.iamshowcase.com/testsp_metadata.xml
-- sp-cert: ./samlsp.crt
+  idp-metadata: https://mocksaml.com/api/saml/metadata
+- name: b
+  sp-url: http://localhost:9091/b
+  sp-cert: ./samlsp.crt
   sp-key: ./samlsp.key
-  idp-metadata: https://sptest.iamshowcase.com/testsp_metadata.xml
+  idp-metadata: https://mocksaml.com/api/saml/metadata

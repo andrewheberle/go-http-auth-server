@@ -28,6 +28,7 @@ type ServiceProvider struct {
 	root                       *url.URL
 	store                      AttributeStore
 	opts                       samlsp.Options
+	name                       string
 }
 
 var requiredHeaders = []string{
@@ -338,9 +339,12 @@ func (s *ServiceProvider) HomeHandler(w http.ResponseWriter, r *http.Request) {
 	  <div>Name: {{ index .Data "remote-name" }}</div>
 	  <div>Email: {{ index .Data "remote-email" }}</div>
 	  <h2>Service Provider Information</h2>
-	  <div>Assertion Consumer Service URL: {{ .AcsURL }}
-	  <div>Entity ID: {{ .EntityID }}
-	  <div>Metadata URL: {{ .MetadataURL }}
+	  {{ if (ne .Name "") }}
+	  <div>Name: {{ .Name }}</div>
+	  {{ end }}
+	  <div>Assertion Consumer Service URL: {{ .AcsURL }}</div>
+	  <div>Entity ID: {{ .EntityID }}</div>
+	  <div>Metadata URL: {{ .MetadataURL }}</div>
 	  </body>
 	</html>`)
 
@@ -369,12 +373,14 @@ func (s *ServiceProvider) HomeHandler(w http.ResponseWriter, r *http.Request) {
 			EntityID    string
 			MetadataURL string
 			LogoutURL   string
+			Name        string
 		}{
 			Data:        claims,
 			AcsURL:      s.mw.ServiceProvider.AcsURL.String(),
 			EntityID:    s.mw.ServiceProvider.EntityID,
 			MetadataURL: s.mw.ServiceProvider.MetadataURL.String(),
 			LogoutURL:   s.mw.ServiceProvider.SloURL.String(),
+			Name:        s.name,
 		})
 
 		return

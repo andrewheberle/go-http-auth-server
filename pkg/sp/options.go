@@ -66,3 +66,9 @@ func WithMetadataRefreshInterval(d time.Duration) ServiceProviderOption {
 		s.idpMetadataRefreshInterval = d
 	}
 }
+
+func WithName(name string) ServiceProviderOption {
+	return func(s *ServiceProvider) {
+		s.name = name
+	}
+}

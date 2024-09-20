@@ -54,10 +54,10 @@ func init() {
 	rootCmd.Flags().Bool("debug", false, "Enable debug logging")
 
 	// flag requirements
-	rootCmd.MarkFlagsRequiredTogether("cert", "key")
 	rootCmd.MarkFlagsRequiredTogether("sp-cert", "sp-key")
 	rootCmd.MarkFlagRequired("sp-cert")
 	rootCmd.MarkFlagRequired("sp-key")
+	rootCmd.MarkFlagsRequiredTogether("cert", "key")
 	rootCmd.MarkFlagsRequiredTogether("idp-issuer", "idp-sso-endpoint", "idp-certificate")
 	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-issuer")
 	rootCmd.MarkFlagsMutuallyExclusive("idp-metadata", "idp-sso-endpoint")
@@ -81,17 +81,26 @@ func initConfig() {
 			slog.Error("problem loading configuration", "error", err)
 			os.Exit(1)
 		}
+
+		// set sp-cert and sp-key to something just to allow things to work when using multiple SP's
+		for _, name := range []string{"sp-cert", "sp-key"} {
+			if !viper.IsSet(name) {
+				rootCmd.Flags().Set(name, "unused")
+			}
+		}
 	}
 
-	// set any flags found in environment via viper
+	// set any flags found in environment/config via viper
 	rootCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if viper.IsSet(f.Name) && viper.GetString(f.Name) != "" {
+			slog.Info("setting flag", "name", f.Name, "value", viper.GetString(f.Name))
 			rootCmd.Flags().Set(f.Name, viper.GetString(f.Name))
 		}
 	})
 }
 
 type serviceProvider struct {
+	Name                        string            `mapstructure:"name"`
 	ServiceProviderURL          string            `mapstructure:"sp-url"`
 	ServiceProviderClaimMapping map[string]string `mapstructure:"sp-claim-mapping"`
 	ServiceProviderCertificate  string            `mapstructure:"sp-cert"`
@@ -179,6 +188,11 @@ func runRootCmd() error {
 			opts = append(opts, sp.WithAttributeStore(store))
 		}
 
+		// set Service Provider name if provided
+		if spConfig.Name != "" {
+			opts = append(opts, sp.WithName(spConfig.Name))
+		}
+
 		// set up auth provider
 		provider, err := sp.NewServiceProvider(spConfig.ServiceProviderCertificate, spConfig.ServiceProviderKey, root, opts...)
 		if err != nil {
@@ -220,6 +234,7 @@ func runRootCmd() error {
 			"acs-url", provider.AcsURL().String(),
 			"metdata-url", provider.MetadataURL().String(),
 			"logout-url", provider.LogoutUrl().String(),
+			"name", spConfig.Name,
 		)
 	}
 
