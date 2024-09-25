@@ -148,6 +148,15 @@ func runRootCmd() error {
 
 	// set up service provider(s)
 	for _, spConfig := range serviceProviders {
+		// show config in debug mode
+		slog.Debug("setting up service provider",
+			"name", spConfig.Name,
+			"url", spConfig.ServiceProviderURL,
+			"metdata", spConfig.IdPMetadata,
+			"cert", spConfig.ServiceProviderCertificate,
+			"key", spConfig.ServiceProviderKey,
+		)
+
 		// validate service provider root url
 		root, err := url.Parse(spConfig.ServiceProviderURL)
 		if err != nil {
