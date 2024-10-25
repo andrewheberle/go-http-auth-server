@@ -5,7 +5,7 @@ COPY . /build
 RUN cd /build && \
     go build ./cmd/http-auth-server
 
-FROM gcr.io/distroless/base-debian12:nonroot@sha256:1c99fceaba16f833d6eb030c07d6304bce68f18350e1a0c69a85b8781afc00d9
+FROM gcr.io/distroless/base-debian12:nonroot@sha256:c3584d9160af7bbc6a0a6089dc954d0938bb7f755465bb4ef4265aad0221343e
 
 COPY --from=builder /build/http-auth-server /app/http-auth-server
 
