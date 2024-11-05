@@ -7,7 +7,7 @@ replace github.com/crewjam/saml v0.4.14 => github.com/rancher/saml v0.4.14-ranch
 require (
 	github.com/cloudflare/certinel v0.4.1
 	github.com/crewjam/saml v0.4.14
-	github.com/golang-jwt/jwt/v4 v4.5.0
+	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/karlseguin/ccache/v3 v3.0.5
 	github.com/oklog/run v1.1.0
