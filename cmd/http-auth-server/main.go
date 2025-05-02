@@ -1,7 +1,15 @@
 package main
 
-import "github.com/andrewheberle/go-http-auth-server/internal/cmd"
+import (
+	"fmt"
+	"os"
+
+	"github.com/andrewheberle/go-http-auth-server/internal/pkg/cmd"
+)
 
 func main() {
-	cmd.Execute()
+	if err := cmd.Execute(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "error during execution: %s\n", err)
+		os.Exit(1)
+	}
 }
