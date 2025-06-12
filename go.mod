@@ -7,17 +7,15 @@ toolchain go1.24.2
 replace github.com/crewjam/saml v0.4.14 => github.com/rancher/saml v0.4.14-rancher3
 
 require (
-	github.com/andrewheberle/simplecommand v0.2.0
+	github.com/andrewheberle/simplecommand v0.3.0
 	github.com/bep/simplecobra v0.6.0
 	github.com/cloudflare/certinel v0.4.1
 	github.com/crewjam/saml v0.4.14
-	github.com/go-viper/mapstructure/v2 v2.2.1
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/karlseguin/ccache/v3 v3.0.6
 	github.com/oklog/run v1.1.0
 	github.com/russellhaering/goxmldsig v1.4.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -25,6 +23,7 @@ require (
 	github.com/beevik/etree v1.2.0 // indirect
 	github.com/crewjam/httperr v0.2.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
@@ -47,4 +46,5 @@ require (
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

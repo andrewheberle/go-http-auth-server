@@ -1,0 +1,4 @@
+service-providers:
+- name: nocert
+  sp-url: http://localhost:9091
+  idp-metadata: https://mocksaml.com/api/saml/metadata

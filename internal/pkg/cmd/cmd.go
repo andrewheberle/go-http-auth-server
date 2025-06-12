@@ -15,9 +15,7 @@ import (
 	"github.com/andrewheberle/simplecommand"
 	"github.com/bep/simplecobra"
 	"github.com/cloudflare/certinel/fswatcher"
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/oklog/run"
-	"gopkg.in/yaml.v3"
 )
 
 type rootCommand struct {
@@ -27,7 +25,6 @@ type rootCommand struct {
 	cert   string
 	key    string
 	listen string
-	config string
 	debug  bool
 
 	// sp flags
@@ -50,7 +47,9 @@ type rootCommand struct {
 }
 
 func (c *rootCommand) Init(cd *simplecobra.Commandeer) error {
-	c.Command.Init(cd)
+	if err := c.Command.Init(cd); err != nil {
+		return err
+	}
 
 	cmd := cd.CobraCommand
 	// general command line flags
@@ -58,7 +57,7 @@ func (c *rootCommand) Init(cd *simplecobra.Commandeer) error {
 	cmd.Flags().StringVar(&c.key, "key", "", "HTTPS Key")
 	cmd.MarkFlagsRequiredTogether("cert", "key")
 	cmd.Flags().StringVar(&c.listen, "listen", "127.0.0.1:9091", "Listen address")
-	cmd.Flags().StringVarP(&c.config, "config", "c", "", "Configuration file")
+	cmd.Flags().StringVarP(&c.Config, "config", "c", "", "Configuration file")
 	cmd.Flags().BoolVar(&c.debug, "debug", false, "Enable debug logging")
 
 	// sp command line flags
@@ -97,6 +96,8 @@ func (c *rootCommand) PreRun(this, runner *simplecobra.Commandeer) error {
 		logLevel.Set(slog.LevelDebug)
 	}
 
+	c.logger.Debug("service provider list", "list", c.serviceProviders())
+
 	return nil
 }
 
@@ -115,54 +116,6 @@ type serviceProvider struct {
 }
 
 func (c *rootCommand) Run(ctx context.Context, cd *simplecobra.Commandeer, args []string) error {
-	var serviceProviders []serviceProvider
-
-	// did we load in via a config file
-	if c.config != "" {
-		// read in file
-		b, err := os.ReadFile(c.config)
-		if err == nil {
-			var y map[string]any
-
-			// unmarshal to map
-			if err := yaml.Unmarshal(b, &y); err == nil {
-				// was there a service_providers key
-				if splist, ok := y["service_providers"]; ok {
-					// multiple sp
-					if err := mapstructure.Decode(splist, &serviceProviders); err != nil {
-						return fmt.Errorf("error with service providers list: %w", err)
-					}
-				} else {
-					// single sp
-					var sp serviceProvider
-
-					// try to unmarshal as single
-					if err := yaml.Unmarshal(b, &sp); err != nil {
-						return fmt.Errorf("error with service provider: %w", err)
-					}
-
-					serviceProviders = []serviceProvider{sp}
-				}
-			}
-		}
-	} else {
-		// create sp conf from flags directly
-		serviceProviders = []serviceProvider{
-			{
-				ServiceProviderURL:          c.spUrl,
-				ServiceProviderClaimMapping: c.spClaimMapping,
-				ServiceProviderCertificate:  c.spCert,
-				ServiceProviderKey:          c.spKey,
-				IdPMetadata:                 c.idpMetadata,
-				IdPIssuer:                   c.idpIssuer,
-				IdPSSOEndpoint:              c.idpSSOEndpoint,
-				IdPCertificate:              c.idpCertificate,
-				DatabaseConnection:          c.dbConnection,
-				DatabaseTablePrefix:         c.dbPrefix,
-			},
-		}
-	}
-
 	// create run group
 	g := run.Group{}
 
@@ -170,12 +123,16 @@ func (c *rootCommand) Run(ctx context.Context, cd *simplecobra.Commandeer, args 
 	mux := http.NewServeMux()
 
 	// set up service provider(s)
-	for _, spConfig := range serviceProviders {
+	for _, spConfig := range c.serviceProviders() {
+		// use global values as a fallback if some values are not set
+		spConfig.ServiceProviderCertificate = fallback(spConfig.ServiceProviderCertificate, c.spCert)
+		spConfig.ServiceProviderKey = fallback(spConfig.ServiceProviderKey, c.spKey)
+
 		// show config in debug mode
 		c.logger.Debug("setting up service provider",
 			"name", spConfig.Name,
 			"url", spConfig.ServiceProviderURL,
-			"metdata", spConfig.IdPMetadata,
+			"metadata", spConfig.IdPMetadata,
 			"cert", spConfig.ServiceProviderCertificate,
 			"key", spConfig.ServiceProviderKey,
 		)
@@ -334,6 +291,53 @@ func (c *rootCommand) Run(ctx context.Context, cd *simplecobra.Commandeer, args 
 	return g.Run()
 }
 
+func (c *rootCommand) serviceProviders() []serviceProvider {
+	var serviceProviders []serviceProvider
+
+	// no config file or no viper
+	if c.Config == "" || c.Viper() == nil {
+		return []serviceProvider{
+			{
+				ServiceProviderURL:          c.spUrl,
+				ServiceProviderClaimMapping: c.spClaimMapping,
+				ServiceProviderCertificate:  c.spCert,
+				ServiceProviderKey:          c.spKey,
+				IdPMetadata:                 c.idpMetadata,
+				IdPIssuer:                   c.idpIssuer,
+				IdPSSOEndpoint:              c.idpSSOEndpoint,
+				IdPCertificate:              c.idpCertificate,
+				DatabaseConnection:          c.dbConnection,
+				DatabaseTablePrefix:         c.dbPrefix,
+			},
+		}
+	}
+
+	// plain config file (not a list)
+	if c.Viper().Get("service-providers") == nil {
+		return []serviceProvider{
+			{
+				ServiceProviderURL:          c.spUrl,
+				ServiceProviderClaimMapping: c.spClaimMapping,
+				ServiceProviderCertificate:  c.spCert,
+				ServiceProviderKey:          c.spKey,
+				IdPMetadata:                 c.idpMetadata,
+				IdPIssuer:                   c.idpIssuer,
+				IdPSSOEndpoint:              c.idpSSOEndpoint,
+				IdPCertificate:              c.idpCertificate,
+				DatabaseConnection:          c.dbConnection,
+				DatabaseTablePrefix:         c.dbPrefix,
+			},
+		}
+	}
+
+	// try to unmarshal from list
+	if err := c.Viper().UnmarshalKey("service-providers", &serviceProviders); err != nil {
+		return []serviceProvider{}
+	}
+
+	return serviceProviders
+}
+
 func Execute(args []string) error {
 	rootCmd := &rootCommand{
 		Command: simplecommand.New(
@@ -355,4 +359,14 @@ a SAML IdP in order to provide SSO to a proxied service.`),
 	}
 
 	return nil
+}
+
+func fallback[T comparable](a, b T) T {
+	var zero T
+
+	if a == zero {
+		return b
+	}
+
+	return a
 }

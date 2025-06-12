@@ -1,5 +1,5 @@
-github.com/andrewheberle/simplecommand v0.2.0 h1:ZJRESmjd8zsHGTK1EY5ickZOtWNlQLCh4qSUiSPVIsE=
-github.com/andrewheberle/simplecommand v0.2.0/go.mod h1:mcCWB3Ano9gsv7FW288hXDZr4H9XPYIgXxDJP1Z1cYY=
+github.com/andrewheberle/simplecommand v0.3.0 h1:pjTQae9YwajvSEFjdaaczAd/7i/LSic6yuxUQENYTlU=
+github.com/andrewheberle/simplecommand v0.3.0/go.mod h1:D9L/jnIotmn3rxyAYIKAAd9rSA+QEHsbfU1UUAo1Upg=
 github.com/andrewheberle/simpleviper v1.1.1 h1:9cgJDjcQZoQD1OrgjdMgWP4oFVlFGaHXzxVOsJz0abE=
 github.com/andrewheberle/simpleviper v1.1.1/go.mod h1:xMIWZmEaiCzd86Pq1YNb0PQ/4Fz5thKInTscmfUvUmw=
 github.com/beevik/etree v1.1.0/go.mod h1:r8Aw8JqVegEf0w2fDnATrX9VpkMcyFeM0FhwO62wh+A=
