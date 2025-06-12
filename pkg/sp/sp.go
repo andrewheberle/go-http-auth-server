@@ -29,6 +29,7 @@ type ServiceProvider struct {
 	store                      AttributeStore
 	opts                       samlsp.Options
 	name                       string
+	cookieName                 string
 	onerror                    func(w http.ResponseWriter, r *http.Request, err error)
 }
 
@@ -77,6 +78,7 @@ func NewServiceProvider(cert, key string, root *url.URL, options ...ServiceProvi
 		EntityID:          root.String(),
 		Key:               keyPair.PrivateKey.(*rsa.PrivateKey),
 		Certificate:       keyPair.Leaf,
+		CookieName:        serviceProvider.cookieName,
 		IDPMetadata:       serviceProvider.idpMetadata,
 		AllowIDPInitiated: true,
 		SignRequest:       true,

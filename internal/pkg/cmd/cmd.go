@@ -28,6 +28,7 @@ type rootCommand struct {
 	debug  bool
 
 	// sp flags
+	spCookie       string
 	spCert         string
 	spKey          string
 	spUrl          string
@@ -61,6 +62,7 @@ func (c *rootCommand) Init(cd *simplecobra.Commandeer) error {
 	cmd.Flags().BoolVar(&c.debug, "debug", false, "Enable debug logging")
 
 	// sp command line flags
+	cmd.Flags().StringVar(&c.spCookie, "sp-cookie", "token", "Cookie Name set by Service Provider")
 	cmd.Flags().StringVar(&c.spCert, "sp-cert", "", "Service Provider Certificate")
 	cmd.Flags().StringVar(&c.spKey, "sp-key", "", "Service Provider Key")
 	cmd.MarkFlagsRequiredTogether("sp-cert", "sp-key")
@@ -107,6 +109,7 @@ type serviceProvider struct {
 	ServiceProviderClaimMapping map[string]string `mapstructure:"sp-claim-mapping"`
 	ServiceProviderCertificate  string            `mapstructure:"sp-cert"`
 	ServiceProviderKey          string            `mapstructure:"sp-key"`
+	ServiceProviderCookieName   string            `mapstructure:"sp-cookie"`
 	IdPMetadata                 string            `mapstructure:"idp-metadata"`
 	IdPIssuer                   string            `mapstructure:"idp-issuer"`
 	IdPSSOEndpoint              string            `mapstructure:"idp-sso-endpoint"`
@@ -127,6 +130,7 @@ func (c *rootCommand) Run(ctx context.Context, cd *simplecobra.Commandeer, args 
 		// use global values as a fallback if some values are not set
 		spConfig.ServiceProviderCertificate = fallback(spConfig.ServiceProviderCertificate, c.spCert)
 		spConfig.ServiceProviderKey = fallback(spConfig.ServiceProviderKey, c.spKey)
+		spConfig.ServiceProviderCookieName = fallback(spConfig.ServiceProviderCookieName, c.spCookie)
 
 		// show config in debug mode
 		c.logger.Debug("setting up service provider",
@@ -146,6 +150,7 @@ func (c *rootCommand) Run(ctx context.Context, cd *simplecobra.Commandeer, args 
 		// set up service provider options
 		opts := []sp.ServiceProviderOption{
 			sp.WithClaimMapping(spConfig.ServiceProviderClaimMapping),
+			sp.WithCookieName(spConfig.ServiceProviderCookieName),
 		}
 
 		// handle metadata
@@ -302,6 +307,7 @@ func (c *rootCommand) serviceProviders() []serviceProvider {
 				ServiceProviderClaimMapping: c.spClaimMapping,
 				ServiceProviderCertificate:  c.spCert,
 				ServiceProviderKey:          c.spKey,
+				ServiceProviderCookieName:   c.spCookie,
 				IdPMetadata:                 c.idpMetadata,
 				IdPIssuer:                   c.idpIssuer,
 				IdPSSOEndpoint:              c.idpSSOEndpoint,
@@ -320,6 +326,7 @@ func (c *rootCommand) serviceProviders() []serviceProvider {
 				ServiceProviderClaimMapping: c.spClaimMapping,
 				ServiceProviderCertificate:  c.spCert,
 				ServiceProviderKey:          c.spKey,
+				ServiceProviderCookieName:   c.spCookie,
 				IdPMetadata:                 c.idpMetadata,
 				IdPIssuer:                   c.idpIssuer,
 				IdPSSOEndpoint:              c.idpSSOEndpoint,
