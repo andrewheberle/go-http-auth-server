@@ -46,6 +46,7 @@ AUTH_IDP_METADATA=https://idp.example.net/metadata \
       --listen string                     Listen address (default "127.0.0.1:9091")
       --sp-cert string                    Service Provider Certificate
       --sp-claim-mapping stringToString   Mapping of claims to headers (default [remote-user=urn:oasis:names:tc:SAML:attribute:subject-id,remote-email=mail,remote-name=displayName,remote-groups=role])
+      --sp-cookie                         Cookie Name set by Service Provider (default "token")
       --sp-key string                     Service Provider Key
       --sp-url string                     Service Provider URL (default "http://localhost:9091")
 ```
@@ -60,6 +61,8 @@ For this reason, the token only contains minimal data with the rest contained se
 
 By default this store is a basic in-memory store, which means it cannot be shared among multiple instances of this service and also will be lost on restart. The loss of this data on restart is not particularly problematic as the only result will be that the SP will not be able to validate the user is signed in and force the login flow to the IdP.
 
+If using muliple nodes however, using the in-memory store will cause unexpected re-authentiations if requests are handled by different instances.
+
 When using multiple instances, it is possible to use a PostgreSQL database to store this content.
 
 ### Using the same database for multiple deployments
@@ -67,3 +70,7 @@ When using multiple instances, it is possible to use a PostgreSQL database to st
 All instances of the same Service Provider should share the same configuration options, including the database store, however if seperate service providers are configured using the same database there is the chance incorrect claims may be returned.
 
 To allow sharing of the same database between seperate Service Providers, the `db-prefix` option will ensure this data is stored in seperate tables.
+
+### Cookie Name
+
+The login "token" is stored as a JWT in a cookie named "token" by default. It is important to ensure that seperate SP's use distinct cookie names to ensure JWT's are correctly validated and not overwritten.

@@ -15,7 +15,7 @@ import (
 func DefaultRequestTracker(opts samlsp.Options, serviceProvider *saml.ServiceProvider) CookieRequestTracker {
 	return CookieRequestTracker{
 		ServiceProvider: serviceProvider,
-		NamePrefix:      "saml_",
+		NamePrefix:      fmt.Sprintf("saml_%s_", opts.CookieName),
 		Codec:           samlsp.DefaultTrackedRequestCodec(opts),
 		MaxAge:          saml.MaxIssueDelay,
 		RelayStateFunc:  opts.RelayStateFunc,

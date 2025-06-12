@@ -67,6 +67,12 @@ func WithMetadataRefreshInterval(d time.Duration) ServiceProviderOption {
 	}
 }
 
+func WithCookieName(name string) ServiceProviderOption {
+	return func(s *ServiceProvider) {
+		s.cookieName = name
+	}
+}
+
 func WithName(name string) ServiceProviderOption {
 	return func(s *ServiceProvider) {
 		s.name = name
