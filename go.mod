@@ -11,7 +11,7 @@ require (
 	github.com/crewjam/saml v0.5.1
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/jackc/pgx/v5 v5.6.0
-	github.com/karlseguin/ccache/v3 v3.0.6
+	github.com/karlseguin/ccache/v3 v3.0.8
 	github.com/oklog/run v1.2.0
 	github.com/russellhaering/goxmldsig v1.4.0
 )
