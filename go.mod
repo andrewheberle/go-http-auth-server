@@ -2,7 +2,7 @@ module github.com/andrewheberle/go-http-auth-server
 
 go 1.24.0
 
-toolchain go1.24.2
+toolchain go1.26.0
 
 require (
 	github.com/andrewheberle/simplecommand v0.3.1
