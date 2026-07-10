@@ -1,8 +1,6 @@
 module github.com/andrewheberle/go-http-auth-server
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25.0
 
 require (
 	github.com/andrewheberle/simplecommand v0.3.1
@@ -10,7 +8,6 @@ require (
 	github.com/cloudflare/certinel v0.4.1
 	github.com/crewjam/saml v0.5.1
 	github.com/golang-jwt/jwt/v4 v4.5.2
-	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/karlseguin/ccache/v3 v3.0.8
 	github.com/oklog/run v1.2.0
@@ -39,9 +36,9 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/crypto v0.33.0 // indirect
-	golang.org/x/sync v0.11.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
