@@ -14,12 +14,12 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/karlseguin/ccache/v3 v3.0.8
 	github.com/oklog/run v1.2.0
-	github.com/russellhaering/goxmldsig v1.5.0
+	github.com/russellhaering/goxmldsig v1.6.0
 )
 
 require (
 	github.com/andrewheberle/simpleviper v1.2.0 // indirect
-	github.com/beevik/etree v1.5.0 // indirect
+	github.com/beevik/etree v1.6.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
