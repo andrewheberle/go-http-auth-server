@@ -171,8 +171,29 @@ func (sp *ServiceProvider) initmw() error {
 	return nil
 }
 
+func (s *ServiceProvider) redactedHeaders(h http.Header) http.Header {
+	redacted := h.Clone()
+	sensitive := map[string]struct{}{
+		"Authorization":       {},
+		"Proxy-Authorization": {},
+		"Cookie":              {},
+		"Set-Cookie":          {},
+		"X-Api-Key":           {},
+		"X-Auth-Token":        {},
+		"X-Amz-Security-Token": {},
+	}
+
+	for key := range redacted {
+		if _, ok := sensitive[http.CanonicalHeaderKey(key)]; ok {
+			redacted[key] = []string{"[REDACTED]"}
+		}
+	}
+
+	return redacted
+}
+
 func (s *ServiceProvider) ForwardAuthHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Debug("got request", "headers", r.Header)
+	slog.Debug("got request", "headers", s.redactedHeaders(r.Header))
 
 	// check provided headers
 	if err := s.checkHeaders(r); err != nil {
